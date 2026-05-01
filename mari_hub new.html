@@ -192,6 +192,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     <button class="tab active" id="tab-vacantes" onclick="switchTab('vacantes')">📋 Vacantes <span class="tab-pill" id="pill-vacantes">0</span></button>
     <button class="tab" id="tab-candidatos" onclick="switchTab('candidatos')">👤 Candidatos <span class="tab-pill" id="pill-candidatos">0</span></button>
     <button class="tab" id="tab-procesos" onclick="switchTab('procesos')">🔄 Procesos <span class="tab-pill" id="pill-procesos">0</span></button>
+    <button class="tab" id="tab-entrevistas" onclick="switchTab('entrevistas')">📝 Entrevistas <span class="tab-pill" id="pill-entrevistas">0</span></button>
     <button class="tab" id="tab-tareas" onclick="switchTab('tareas')">✅ Tareas <span class="tab-pill" id="pill-tareas">0</span></button>
   </div>
 
@@ -243,6 +244,11 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
         <option value="Contratado">Contratado</option>
         <option value="Descartado">Descartado</option>
       </select>
+      <select class="ctrl-select" id="filterCandEntrevista" onchange="renderCandidatos()">
+        <option value="">Con y sin entrevista</option>
+        <option value="con">Con entrevista registrada</option>
+        <option value="sin">Sin entrevista registrada</option>
+      </select>
       <button class="btn-primary" onclick="openModal('candidato')">+ Nuevo candidato</button>
     </div>
     <div class="table-wrap">
@@ -271,6 +277,38 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
       <button class="btn-primary" onclick="openModal('proceso')">+ Nuevo proceso</button>
     </div>
     <div class="kanban" id="kanbanProcesos"></div>
+  </div>
+
+  <!-- ENTREVISTAS -->
+  <div class="panel" id="panel-entrevistas">
+    <div class="controls">
+      <input class="ctrl-input" type="text" id="searchEnt" placeholder="Buscar por nombre..." oninput="renderEntrevistas()">
+      <select class="ctrl-select" id="filterEntVac" onchange="renderEntrevistas()">
+        <option value="">Todas las vacantes</option>
+      </select>
+      <select class="ctrl-select" id="filterEntPaso" onchange="renderEntrevistas()">
+        <option value="">Todos los resultados</option>
+        <option value="SI">Pasó ✅</option>
+        <option value="NO">No pasó ❌</option>
+      </select>
+      <button class="btn-primary" onclick="openModal('entrevista')">+ Nueva entrevista</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:160px">Nombre</th>
+          <th style="width:160px">Posición</th>
+          <th style="width:90px">Modalidad</th>
+          <th style="width:120px">Ciudad / País</th>
+          <th style="width:80px">Inglés</th>
+          <th style="width:120px">Expectativa salarial</th>
+          <th style="width:90px">Disponibilidad</th>
+          <th style="width:70px">¿Pasó?</th>
+          <th style="width:80px">Acciones</th>
+        </tr></thead>
+        <tbody id="tbodyEntrevistas"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- TAREAS -->
@@ -328,7 +366,7 @@ function loadLocal() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch(e) {}
-  return { vacantes: [], candidatos: [], procesos: [], tareas: [], nextId: 1 };
+  return { vacantes: [], candidatos: [], procesos: [], tareas: [], entrevistas: [], nextId: 1 };
 }
 
 function saveLocal() {
@@ -440,12 +478,13 @@ function bdg(text, cls) {
 let currentTab = 'vacantes';
 function switchTab(tab) {
   currentTab = tab;
-  ['vacantes','candidatos','procesos','tareas'].forEach(t => {
+  ['vacantes','candidatos','procesos','entrevistas','tareas'].forEach(t => {
     document.getElementById('panel-'+t).classList.toggle('active', t === tab);
     document.getElementById('tab-'+t).classList.toggle('active', t === tab);
   });
   if (tab === 'candidatos') { populateCandVacFilter(); renderCandidatos(); }
   if (tab === 'procesos') { populateProcVacFilter(); renderProcesos(); }
+  if (tab === 'entrevistas') { populateEntVacFilter(); renderEntrevistas(); }
   if (tab === 'tareas') renderTareas();
   if (tab === 'vacantes') renderVacantes();
 }
@@ -469,6 +508,7 @@ function renderStats() {
   document.getElementById('pill-candidatos').textContent = cand.length;
   document.getElementById('pill-procesos').textContent = DB.procesos.length;
   document.getElementById('pill-tareas').textContent = tareas.filter(t => !t.done).length;
+  document.getElementById('pill-entrevistas').textContent = (DB.entrevistas||[]).length;
 }
 
 // ── VACANTES ──────────────────────────────────────────────
@@ -648,10 +688,15 @@ function renderCandidatos() {
   const q = (document.getElementById('searchCand').value || '').toLowerCase();
   const vf = document.getElementById('filterCandVac').value;
   const sf = document.getElementById('filterCandStatus').value;
+  const ef = document.getElementById('filterCandEntrevista')?.value||'';
+  if (!DB.entrevistas) DB.entrevistas = [];
   let data = DB.candidatos.filter(c => {
     if (q && !c.nombre.toLowerCase().includes(q)) return false;
     if (vf && String(c.vacId) !== vf) return false;
     if (sf && c.etapa !== sf) return false;
+    const hasEnt = DB.entrevistas.some(e => e.nombre.toLowerCase() === c.nombre.toLowerCase());
+    if (ef === 'con' && !hasEnt) return false;
+    if (ef === 'sin' && hasEnt) return false;
     return true;
   });
   const tbody = document.getElementById('tbodyCandidatos');
@@ -660,7 +705,10 @@ function renderCandidatos() {
     const vac = DB.vacantes.find(v => v.id === c.vacId);
     const isUrgent = c.fechaProxima && calcAging(c.fechaProxima) < 0 && c.etapa !== 'Contratado' && c.etapa !== 'Descartado';
     return `<tr${isUrgent?' style="background:var(--red-bg);"':''}>
-      <td style="font-weight:500;font-size:12px;">${esc(c.nombre)}</td>
+      <td style="font-weight:500;font-size:12px;">
+        ${esc(c.nombre)}
+        ${DB.entrevistas&&DB.entrevistas.some(e=>e.nombre.toLowerCase()===c.nombre.toLowerCase())?'<span class="badge b-open" style="margin-left:5px;font-size:9px;">Entrevistado</span>':''}
+      </td>
       <td style="font-size:11px;color:var(--text2);">${esc(vac ? vac.pos : '—')}</td>
       <td><select class="ctrl-select" style="font-size:11px;padding:3px 5px;" data-id="${c.id}" onchange="changeCandStatus(parseInt(this.dataset.id),this.value)">
         ${['Aplicado','Submittal Sent','Entrevista','Entrevista HM','Contratado','Descartado'].map(s=>`<option${c.etapa===s?' selected':''}>${s}</option>`).join('')}
@@ -846,6 +894,89 @@ function openModal(type, id = null) {
     return;
   }
 
+  else if (type === 'entrevista') {
+    if (!DB.entrevistas) DB.entrevistas = [];
+    const e = id ? DB.entrevistas.find(x => x.id === id) : {};
+    const vacOptions = DB.vacantes.map(v => `<option value="${v.id}"${e.vacId===v.id?' selected':''}>${esc(v.pos)}</option>`).join('');
+    const radio = (name, val, cur, label) => `<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:3px 0;cursor:pointer;"><input type="radio" name="${name}" id="f-${name}" value="${val}" ${cur===val?'checked':''}> ${label}</label>`;
+    modal.innerHTML = `
+      <h3>${id ? 'Editar entrevista' : 'Nueva entrevista'}</h3>
+      <div class="modal-grid">
+        <div class="modal-field full"><label>1. Nombre *</label><input id="f-nombre" value="${esc(e.nombre||'')}" placeholder="Nombre completo del candidato..."></div>
+        <div class="modal-field"><label>2. Posición</label><input id="f-posicion" value="${esc(e.posicion||'')}" placeholder="Cargo al que aplica..."></div>
+        <div class="modal-field"><label>Vacante en hub</label><select id="f-vacId"><option value="">Sin vincular</option>${vacOptions}</select></div>
+        <div class="modal-field"><label>3. Modalidad</label><select id="f-modalidad">
+          ${['Presencial','Remoto','Híbrido'].map(s=>`<option${(e.modalidad||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>4. Ciudad / País</label><select id="f-ciudad">
+          ${['Barranquilla','Bogotá','Medellín','Cali','Bucaramanga','Ibagué','Armenia','Otras'].map(s=>`<option${(e.ciudad||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>5. ¿Con quién vive?</label><select id="f-conQuienVive">
+          ${['Padres','Mamá','Papá','Familia','Esposa e hijos','Pareja','Solo','Otras'].map(s=>`<option${(e.conQuienVive||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>6. ¿Dependientes económicos?</label><select id="f-dependientes">
+          <option${(e.dependientes||'')==='SI'?' selected':''}>SI</option>
+          <option${(e.dependientes||'')==='NO'?' selected':''}>NO</option>
+        </select></div>
+        <div class="modal-field"><label>7. Transporte</label><select id="f-transporte">
+          ${['Carro propio','Vehículo propio','Moto','Transporte público','No especifica'].map(s=>`<option${(e.transporte||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>8. Edad</label><input id="f-edad" value="${esc(e.edad||'')}" placeholder="Ej: 28"></div>
+        <div class="modal-field"><label>9. Hobbies</label><input id="f-hobbies" value="${esc(e.hobbies||'')}" placeholder="..."></div>
+        <div class="modal-field"><label>10. ¿Requiere mayor disponibilidad para hobbie?</label><select id="f-requiereTiempoHobbie">
+          <option${(e.requiereTiempoHobbie||'')==='SI'?' selected':''}>SI</option>
+          <option${(e.requiereTiempoHobbie||'')==='NO'?' selected':''}>NO</option>
+        </select></div>
+        <div class="modal-field"><label>11. ¿Cuánto tiempo?</label><input id="f-cuantoTiempo" value="${esc(e.cuantoTiempo||'')}" placeholder="..."></div>
+        <div class="modal-field"><label>12. Ingresos adicionales</label><select id="f-ingresosAdicionales">
+          <option${(e.ingresosAdicionales||'')==='NO'?' selected':''}>NO</option>
+          <option${(e.ingresosAdicionales||'')==='SI'?' selected':''}>SI</option>
+        </select></div>
+        <div class="modal-field"><label>13. ¿Está estudiando?</label><select id="f-estudiando">
+          ${['Sí, presencial','Sí, virtual','No','Está pensándolo'].map(s=>`<option${(e.estudiando||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field full"><label>14. ¿En qué etapa y cuándo finaliza?</label><input id="f-etapaEstudio" value="${esc(e.etapaEstudio||'')}" placeholder="Ej: Último semestre, diciembre 2025..."></div>
+        <div class="modal-field"><label>15. ¿Viaje próximo (6 meses)?</label><select id="f-viajeProximo">
+          <option${(e.viajeProximo||'')==='SI'?' selected':''}>SI</option>
+          <option${(e.viajeProximo||'')==='NO'?' selected':''}>NO</option>
+        </select></div>
+        <div class="modal-field"><label>16. Detalle del compromiso (con fecha)</label><input id="f-detalleViaje" value="${esc(e.detalleViaje||'')}" placeholder="..."></div>
+        <div class="modal-field"><label>17. ¿Restricción horaria?</label><select id="f-restriccionHoraria">
+          <option${(e.restriccionHoraria||'')==='SI'?' selected':''}>SI</option>
+          <option${(e.restriccionHoraria||'')==='NO'?' selected':''}>NO</option>
+        </select></div>
+        <div class="modal-field"><label>18. ¿Cuál es la restricción?</label><input id="f-cualRestriccion" value="${esc(e.cualRestriccion||'')}" placeholder="..."></div>
+        <div class="modal-field"><label>19. ¿Actualmente trabajando?</label><select id="f-trabajando">
+          <option${(e.trabajando||'')==='SI'?' selected':''}>SI</option>
+          <option${(e.trabajando||'')==='NO'?' selected':''}>NO</option>
+        </select></div>
+        <div class="modal-field full"><label>20. Experiencia laboral</label><textarea id="f-expLaboral" placeholder="Cuéntame sobre tu experiencia...">${esc(e.expLaboral||'')}</textarea></div>
+        <div class="modal-field"><label>21. Motivo de retiro</label><select id="f-motivoRetiro">
+          ${['Sin justa causa','Recorte de personal','Problemas personales','Viaje','Salud','Cerró la cuenta','Otras'].map(s=>`<option${(e.motivoRetiro||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>22. Meta profesional</label><select id="f-metaProfesional">
+          <option${(e.metaProfesional||'')==='Crecer'?' selected':''}>Crecer</option>
+          <option${(e.metaProfesional||'')==='Otras'?' selected':''}>Otras</option>
+        </select></div>
+        <div class="modal-field"><label>23. Nivel de inglés</label><select id="f-ingles">
+          ${['No tiene','B1','B2','B2+','C1','C2','Nativo'].map(s=>`<option${(e.ingles||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>24. Expectativa salarial</label><input id="f-salario" value="${esc(e.salario||'')}" placeholder="Ej: 3.500.000 COP..."></div>
+        <div class="modal-field"><label>25. ¿Cuándo podría iniciar?</label><select id="f-disponibilidad">
+          ${['Inmediatamente','En una semana','En dos semanas','En un mes','No sabe'].map(s=>`<option${(e.disponibilidad||'')=== s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+        <div class="modal-field"><label>26. ¿Pasó? *</label><select id="f-paso">
+          <option${(e.paso||'')==='SI'?' selected':''} value="SI">✅ Sí</option>
+          <option${(e.paso||'')==='NO'?' selected':''} value="NO">❌ No</option>
+        </select></div>
+        <div class="modal-field full"><label>Notas adicionales</label><textarea id="f-notas" placeholder="Observaciones del entrevistador...">${esc(e.notas||'')}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-save" onclick="saveEntrevista()">Guardar</button>
+      </div>`;
+  }
+
   else if (type === 'tarea') {
     const t = id ? DB.tareas.find(x => x.id === id) : {};
     const today = new Date().toISOString().slice(0,10);
@@ -930,14 +1061,108 @@ function updateClock() {
     `${p(now.getDate())}/${p(now.getMonth()+1)}/${now.getFullYear()} ${p(now.getHours())}:${p(now.getMinutes())}`;
 }
 
+
+// ── ENTREVISTAS ───────────────────────────────────────────
+function populateEntVacFilter() {
+  const sel = document.getElementById('filterEntVac');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Todas las vacantes</option>' +
+    DB.vacantes.map(v => `<option value="${v.id}"${String(v.id)===cur?' selected':''}>${esc(v.pos)}</option>`).join('');
+}
+
+function renderEntrevistas() {
+  if (!DB.entrevistas) DB.entrevistas = [];
+  populateEntVacFilter();
+  const q = (document.getElementById('searchEnt')?.value||'').toLowerCase();
+  const vf = document.getElementById('filterEntVac')?.value||'';
+  const pf = document.getElementById('filterEntPaso')?.value||'';
+  let data = DB.entrevistas.filter(e => {
+    if (q && !e.nombre.toLowerCase().includes(q)) return false;
+    if (vf && String(e.vacId) !== vf) return false;
+    if (pf && e.paso !== pf) return false;
+    return true;
+  });
+  const tbody = document.getElementById('tbodyEntrevistas');
+  if (!data.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">No hay entrevistas registradas — agrega una con el botón +</td></tr>`; return; }
+  tbody.innerHTML = data.map(e => {
+    const vac = DB.vacantes.find(v => v.id === e.vacId);
+    const paso = e.paso === 'SI';
+    return `<tr style="background:${paso?'rgba(22,163,74,0.07)':'rgba(220,38,38,0.05)'}">
+      <td style="font-weight:500;font-size:12px;">${esc(e.nombre)}</td>
+      <td style="font-size:11px;color:var(--text2);">${esc(vac?vac.pos:e.posicion||'—')}</td>
+      <td style="font-size:11px;">${esc(e.modalidad||'—')}</td>
+      <td style="font-size:11px;">${esc(e.ciudad||'—')}</td>
+      <td style="font-size:11px;font-family:'DM Mono',monospace;">${esc(e.ingles||'—')}</td>
+      <td style="font-size:11px;">${esc(e.salario||'—')}</td>
+      <td style="font-size:11px;">${esc(e.disponibilidad||'—')}</td>
+      <td style="text-align:center;">${paso?'<span class="badge b-open">✅ Sí</span>':'<span class="badge b-cancelled">❌ No</span>'}</td>
+      <td style="white-space:nowrap;display:flex;gap:4px;">
+        <button class="btn-secondary" style="font-size:11px;padding:2px 8px;" data-id="${e.id}" onclick="editEntrevista(parseInt(this.dataset.id))">✏️</button>
+        <button class="btn-danger" data-col="entrevistas" data-id="${e.id}" onclick="deleteItem(this.dataset.col, parseInt(this.dataset.id))">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function editEntrevista(id) { openModal('entrevista', id); }
+
+function saveEntrevista() {
+  const nombre = g('f-nombre');
+  if (!nombre) { alert('El nombre es obligatorio.'); return; }
+  const vacId = document.getElementById('f-vacId')?.value ? parseInt(document.getElementById('f-vacId').value) : null;
+  const data = {
+    nombre, vacId,
+    posicion: g('f-posicion'),
+    modalidad: g('f-modalidad'),
+    ciudad: g('f-ciudad'),
+    conQuienVive: g('f-conQuienVive'),
+    dependientes: g('f-dependientes'),
+    transporte: g('f-transporte'),
+    edad: g('f-edad'),
+    hobbies: g('f-hobbies'),
+    requiereTiempoHobbie: g('f-requiereTiempoHobbie'),
+    cuantoTiempo: g('f-cuantoTiempo'),
+    ingresosAdicionales: g('f-ingresosAdicionales'),
+    estudiando: g('f-estudiando'),
+    etapaEstudio: g('f-etapaEstudio'),
+    viajeProximo: g('f-viajeProximo'),
+    detalleViaje: g('f-detalleViaje'),
+    restriccionHoraria: g('f-restriccionHoraria'),
+    cualRestriccion: g('f-cualRestriccion'),
+    trabajando: g('f-trabajando'),
+    expLaboral: g('f-expLaboral'),
+    motivoRetiro: g('f-motivoRetiro'),
+    metaProfesional: g('f-metaProfesional'),
+    ingles: g('f-ingles'),
+    salario: g('f-salario'),
+    disponibilidad: g('f-disponibilidad'),
+    paso: g('f-paso'),
+    notas: g('f-notas'),
+  };
+  if (!DB.entrevistas) DB.entrevistas = [];
+  if (_editId) {
+    Object.assign(DB.entrevistas.find(x => x.id === _editId), data);
+  } else {
+    DB.entrevistas.unshift({ id: nextId(), ...data });
+    // If candidate exists in candidatos, offer to link
+    const cand = DB.candidatos.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
+    if (cand && vacId) { cand.vacId = vacId; cand.etapa = data.paso === 'SI' ? 'Entrevista' : 'Descartado'; }
+  }
+  save(); closeModal(); renderEntrevistas(); renderStats();
+}
+
+
 // ── Init ──────────────────────────────────────────────────
 function renderAll() {
   renderVacantes();
   renderStats();
   populateCandVacFilter();
   populateProcVacFilter();
+  populateEntVacFilter();
   if (currentTab === 'candidatos') renderCandidatos();
   if (currentTab === 'procesos') renderProcesos();
+  if (currentTab === 'entrevistas') renderEntrevistas();
   if (currentTab === 'tareas') renderTareas();
 }
 
