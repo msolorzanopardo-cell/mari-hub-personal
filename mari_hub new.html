@@ -872,7 +872,13 @@ function openModal(type, id = null) {
     modal.innerHTML = `
       <h3>${id ? 'Editar candidato' : 'Nuevo candidato'}</h3>
       <div class="modal-grid">
-        <div class="modal-field full"><label>Nombre *</label><input id="f-nombre" value="${esc(c.nombre||'')}" placeholder="Nombre completo..."></div>
+        <div class="modal-field full">
+          <label>Nombre * <span style="font-size:10px;color:var(--text3);font-weight:400;">(selecciona de entrevistados o escribe)</span></label>
+          <select id="f-nombre-sel" onchange="onNombreSel(this)" style="width:100%;margin-bottom:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
+            <option value="">— Seleccionar candidato entrevistado —</option>
+          </select>
+          <input id="f-nombre" value="${esc(c.nombre||'')}" placeholder="O escribe un nombre nuevo aquí..." style="width:100%;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
+        </div>
         <div class="modal-field"><label>Vacante</label><select id="f-vacId"><option value="">Sin vacante</option>${vacOptions}</select></div>
         <div class="modal-field"><label>Etapa</label><select id="f-etapa">${['Aplicado','Submittal Sent','Entrevista','Entrevista HM','Contratado','Descartado'].map(s=>`<option${(c.etapa||'Aplicado')===s?' selected':''}>${s}</option>`).join('')}</select></div>
         <div class="modal-field"><label>Fuente</label><input id="f-fuente" value="${esc(c.fuente||'')}" placeholder="LinkedIn / Referido..."></div>
@@ -997,10 +1003,57 @@ function openModal(type, id = null) {
   }
 
   overlay.classList.add('show');
+  // Populate entrevistados dropdown if candidato modal
+  if (type === 'candidato') {
+    const sel = document.getElementById('f-nombre-sel');
+    if (sel) {
+      const names = [...new Set((DB.entrevistas||[]).map(e=>e.nombre).filter(Boolean))].sort();
+      names.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        if (id) {
+          const c = DB.candidatos.find(x=>x.id===id);
+          if (c && c.nombre === n) opt.selected = true;
+        }
+        sel.appendChild(opt);
+      });
+    }
+  }
 }
 
 function editVacante(id) { openModal('vacante', id); }
 function editCandidato(id) { openModal('candidato', id); }
+
+function onNombreSel(sel) {
+  const nombre = sel.value;
+  const input = document.getElementById('f-nombre');
+  if (nombre) {
+    input.value = nombre;
+    fillFromEntrevista(nombre);
+  }
+}
+
+function fillFromEntrevista(nombre) {
+  if (!nombre || nombre === '__nuevo__') {
+    document.getElementById('f-nombre').value = '';
+    return;
+  }
+  // Find entrevista data for this person
+  const ent = (DB.entrevistas||[]).find(e => e.nombre === nombre);
+  if (!ent) return;
+  // Fill nombre
+  document.getElementById('f-nombre').value = nombre;
+  // Auto-fill vacante if entrevista has one
+  const vacSel = document.getElementById('f-vacId');
+  if (vacSel && ent.vacId) vacSel.value = ent.vacId;
+  // Auto-fill fuente if empty
+  const fuente = document.getElementById('f-fuente');
+  if (fuente && !fuente.value) fuente.value = 'Entrevista';
+  // Auto-fill salario esperado
+  const sal = document.getElementById('f-salEsperado');
+  if (sal && ent.salario) sal.value = ent.salario;
+}
 
 function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); }
 function closeModalOutside(e) { if (e.target === document.getElementById('modalOverlay')) closeModal(); }
