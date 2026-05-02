@@ -161,6 +161,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 .drawer-save-btn { font-size:11px; padding:4px 12px; border:none; border-radius:var(--radius-sm); background:var(--accent); color:white; cursor:pointer; font-weight:500; margin-top:8px; }
 .drawer-cancel-btn { font-size:11px; padding:4px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:transparent; color:var(--text2); cursor:pointer; margin-top:8px; margin-right:6px; }
 
+@keyframes slideIn { from { transform:translateX(100px);opacity:0; } to { transform:translateX(0);opacity:1; } }
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -193,6 +194,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     <button class="tab" id="tab-candidatos" onclick="switchTab('candidatos')">👤 Candidatos <span class="tab-pill" id="pill-candidatos">0</span></button>
     <button class="tab" id="tab-procesos" onclick="switchTab('procesos')">🔄 Procesos <span class="tab-pill" id="pill-procesos">0</span></button>
     <button class="tab" id="tab-entrevistas" onclick="switchTab('entrevistas')">📝 Entrevistas <span class="tab-pill" id="pill-entrevistas">0</span></button>
+    <button class="tab" id="tab-metricas" onclick="switchTab('metricas')">📊 Métricas</button>
     <button class="tab" id="tab-tareas" onclick="switchTab('tareas')">✅ Tareas <span class="tab-pill" id="pill-tareas">0</span></button>
   </div>
 
@@ -311,6 +313,79 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     </div>
   </div>
 
+  <!-- MÉTRICAS -->
+  <div class="panel" id="panel-metricas">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+      <div>
+        <h2 style="font-size:18px;font-weight:600;letter-spacing:-.3px;">Mi rendimiento</h2>
+        <p style="font-size:12px;color:var(--text2);margin-top:2px;">Análisis de candidatos, submittals y contrataciones</p>
+      </div>
+      <select class="ctrl-select" id="metricasMes" onchange="renderMetricas()">
+        <option value="all">Todo el tiempo</option>
+        <option value="0">Este mes</option>
+        <option value="1">Mes anterior</option>
+        <option value="3">Últimos 3 meses</option>
+        <option value="6">Últimos 6 meses</option>
+      </select>
+    </div>
+
+    <!-- KPI Cards -->
+    <div id="kpiCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;"></div>
+
+    <!-- Charts row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+      <!-- Funnel -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:16px;">Funnel de candidatos</h3>
+        <div id="funnelChart"></div>
+      </div>
+      <!-- Por vacante -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:16px;">Submittals por vacante</h3>
+        <div id="vacantesChart"></div>
+      </div>
+    </div>
+
+    <!-- Contrataciones por mes -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px;">
+      <h3 style="font-size:13px;font-weight:600;margin-bottom:16px;">Contrataciones por mes</h3>
+      <div id="contratacionesChart"></div>
+    </div>
+
+    <!-- Metas -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div>
+          <h3 style="font-size:13px;font-weight:600;">🎯 Mis metas</h3>
+          <p style="font-size:11px;color:var(--text2);margin-top:2px;">Define objetivos y haz seguimiento automático</p>
+        </div>
+        <button class="btn-primary" onclick="openModal('meta')" style="font-size:11px;padding:5px 12px;">+ Nueva meta</button>
+      </div>
+      <div id="metasContainer"></div>
+    </div>
+
+    <!-- Tabla de submittals -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;">Submittals enviados</h3>
+        <button class="btn-primary" onclick="openModal('submittal')" style="font-size:11px;padding:5px 12px;">+ Registrar submittal</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Candidato</th>
+            <th>Vacante</th>
+            <th>Fecha de envío</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            <th>Acción</th>
+          </tr></thead>
+          <tbody id="tbodySubmittals"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- TAREAS -->
   <div class="panel" id="panel-tareas">
     <div class="controls">
@@ -366,7 +441,7 @@ function loadLocal() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch(e) {}
-  return { vacantes: [], candidatos: [], procesos: [], tareas: [], entrevistas: [], nextId: 1 };
+  return { vacantes: [], candidatos: [], procesos: [], tareas: [], entrevistas: [], submittals: [], metas: [], nextId: 1 };
 }
 
 function saveLocal() {
@@ -478,13 +553,14 @@ function bdg(text, cls) {
 let currentTab = 'vacantes';
 function switchTab(tab) {
   currentTab = tab;
-  ['vacantes','candidatos','procesos','entrevistas','tareas'].forEach(t => {
+  ['vacantes','candidatos','procesos','entrevistas','metricas','tareas'].forEach(t => {
     document.getElementById('panel-'+t).classList.toggle('active', t === tab);
     document.getElementById('tab-'+t).classList.toggle('active', t === tab);
   });
   if (tab === 'candidatos') { populateCandVacFilter(); renderCandidatos(); }
   if (tab === 'procesos') { populateProcVacFilter(); renderProcesos(); }
   if (tab === 'entrevistas') { populateEntVacFilter(); renderEntrevistas(); }
+  if (tab === 'metricas') renderMetricas();
   if (tab === 'tareas') renderTareas();
   if (tab === 'vacantes') renderVacantes();
 }
@@ -880,7 +956,8 @@ function openModal(type, id = null) {
           <input id="f-nombre" value="${esc(c.nombre||'')}" placeholder="O escribe un nombre nuevo aquí..." style="width:100%;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
         </div>
         <div class="modal-field"><label>Vacante</label><select id="f-vacId"><option value="">Sin vacante</option>${vacOptions}</select></div>
-        <div class="modal-field"><label>Etapa</label><select id="f-etapa">${['Aplicado','Submittal Sent','Entrevista','Entrevista HM','Contratado','Descartado'].map(s=>`<option${(c.etapa||'Aplicado')===s?' selected':''}>${s}</option>`).join('')}</select></div>
+        <div class="modal-field"><label>Etapa</label><select id="f-etapa" onchange="toggleSubmittalDate(this.value)">${['Aplicado','Submittal Sent','Entrevista','Entrevista HM','Contratado','Descartado'].map(s=>`<option${(c.etapa||'Aplicado')===s?' selected':''}>${s}</option>`).join('')}</select></div>
+        <div class="modal-field" id="submittalDateField" style="${(c.etapa==='Submittal Sent')?'':'display:none'}"><label>Fecha de submittal</label><input type="date" id="f-fechaSubmittal" value="${c.fechaSubmittal||new Date().toISOString().slice(0,10)}"></div>
         <div class="modal-field"><label>Fuente</label><input id="f-fuente" value="${esc(c.fuente||'')}" placeholder="LinkedIn / Referido..."></div>
         <div class="modal-field"><label>Próxima acción</label><input id="f-proxAccion" value="${esc(c.proxAccion||'')}" placeholder="Entrevista técnica..."></div>
         <div class="modal-field"><label>Fecha próxima acción</label><input id="f-fechaProxima" type="date" value="${c.fechaProxima||''}"></div>
@@ -983,6 +1060,67 @@ function openModal(type, id = null) {
       </div>`;
   }
 
+  else if (type === 'submittal') {
+    if (!DB.submittals) DB.submittals = [];
+    const s = id ? DB.submittals.find(x => x.id === id) : {};
+    const candOptions = DB.candidatos.map(c=>`<option value="${c.id}"${s.candId===c.id?' selected':''}>${esc(c.nombre)}</option>`).join('');
+    const vacOptions2 = DB.vacantes.map(v=>`<option value="${v.id}"${s.vacId===v.id?' selected':''}>${esc(v.pos)}</option>`).join('');
+    const entOptions = [...new Set((DB.entrevistas||[]).map(e=>e.nombre))].map(n=>`<option value="${esc(n)}"${s.candidato===n?' selected':''}>${esc(n)}</option>`).join('');
+    modal.innerHTML = `
+      <h3>${id?'Editar submittal':'Registrar submittal'}</h3>
+      <div class="modal-grid">
+        <div class="modal-field full">
+          <label>Candidato *</label>
+          <select id="f-candId" onchange="const n=DB.candidatos.find(x=>x.id===parseInt(this.value));if(n)document.getElementById('f-candidato').value=n.nombre;" style="width:100%;margin-bottom:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
+            <option value="">— Seleccionar de candidatos —</option>
+            ${candOptions}
+          </select>
+          <select onchange="document.getElementById('f-candidato').value=this.value" style="width:100%;margin-bottom:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
+            <option value="">— O seleccionar de entrevistados —</option>
+            ${entOptions}
+          </select>
+          <input id="f-candidato" value="${esc(s.candidato||'')}" placeholder="O escribe el nombre..." style="width:100%;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;outline:none;">
+        </div>
+        <div class="modal-field"><label>Vacante</label><select id="f-vacId"><option value="">Sin vacante</option>${vacOptions2}</select></div>
+        <div class="modal-field"><label>Fecha de envío</label><input type="date" id="f-fechaEnvio" value="${s.fecha||new Date().toISOString().slice(0,10)}"></div>
+        <div class="modal-field"><label>Estado</label><select id="f-estadoSub">
+          ${['Pendiente','Aceptado','Rechazado','En proceso'].map(st=>`<option${(s.estado||'Pendiente')===st?' selected':''}>${st}</option>`).join('')}
+        </select></div>
+        <div class="modal-field full"><label>Notas</label><textarea id="f-notasSub" placeholder="Observaciones...">${esc(s.notas||'')}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-save" onclick="saveSubmittal()">Guardar</button>
+      </div>`;
+  }
+
+  else if (type === 'meta') {
+    const vacOpts = DB.vacantes.map(v=>`<option value="${v.id}">${esc(v.pos)}</option>`).join('');
+    modal.innerHTML = `
+      <h3>Nueva meta</h3>
+      <div class="modal-grid">
+        <div class="modal-field full"><label>Descripción *</label><input id="f-metaDesc" placeholder="Ej: Mandar 5 candidatos para esta posición esta semana..."></div>
+        <div class="modal-field"><label>Tipo de meta</label><select id="f-metaTipo">
+          <option value="submittals">Submittals enviados</option>
+          <option value="entrevistas">Entrevistas realizadas</option>
+          <option value="contrataciones">Contrataciones</option>
+        </select></div>
+        <div class="modal-field"><label>Objetivo (número)</label><input id="f-metaObj" type="number" min="1" value="5" placeholder="5"></div>
+        <div class="modal-field"><label>Período</label><select id="f-metaPeriodo">
+          <option value="semana">Esta semana</option>
+          <option value="mes">Este mes</option>
+        </select></div>
+        <div class="modal-field"><label>Vacante específica (opcional)</label><select id="f-metaVac">
+          <option value="">Todas las vacantes</option>
+          ${vacOpts}
+        </select></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-save" onclick="saveMeta()">Crear meta</button>
+      </div>`;
+  }
+
   else if (type === 'tarea') {
     const t = id ? DB.tareas.find(x => x.id === id) : {};
     const today = new Date().toISOString().slice(0,10);
@@ -1076,7 +1214,7 @@ function saveCandidato() {
   const nombre = g('f-nombre');
   if (!nombre) { alert('El nombre es obligatorio.'); return; }
   const vacId = document.getElementById('f-vacId')?.value ? parseInt(document.getElementById('f-vacId').value) : null;
-  const data = { nombre, vacId, etapa: g('f-etapa'), fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas') };
+  const data = { nombre, vacId, etapa: g('f-etapa'), fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: g('f-fechaSubmittal') };
   if (_editId) {
     Object.assign(DB.candidatos.find(x => x.id === _editId), data);
   } else {
@@ -1206,6 +1344,318 @@ function saveEntrevista() {
 }
 
 
+
+// ── SUBMITTALS & MÉTRICAS ─────────────────────────────────
+function toggleSubmittalDate(val) {
+  const f = document.getElementById('submittalDateField');
+  if (f) f.style.display = val === 'Submittal Sent' ? '' : 'none';
+}
+
+function saveSubmittal() {
+  const candId = document.getElementById('f-candId')?.value ? parseInt(document.getElementById('f-candId').value) : null;
+  const vacId  = document.getElementById('f-vacId')?.value  ? parseInt(document.getElementById('f-vacId').value)  : null;
+  const data = {
+    candId, vacId,
+    candidato: g('f-candidato'),
+    fecha: g('f-fechaEnvio'),
+    estado: g('f-estadoSub'),
+    notas: g('f-notasSub'),
+  };
+  if (!data.candidato) { alert('El nombre del candidato es obligatorio.'); return; }
+  if (!DB.submittals) DB.submittals = [];
+  if (_editId) {
+    Object.assign(DB.submittals.find(x => x.id === _editId), data);
+  } else {
+    DB.submittals.unshift({ id: nextId(), ...data });
+  }
+  save(); closeModal(); renderMetricas();
+}
+
+function renderSubmittals(data) {
+  const tbody = document.getElementById('tbodySubmittals');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin submittals — los candidatos en etapa Submittal Sent aparecen aquí automáticamente</td></tr>'; return; }
+  tbody.innerHTML = data.map(s => {
+    const vac = DB.vacantes.find(v => v.id === s.vacId);
+    const statusColor = s.estado === 'Aceptado' ? 'b-open' : s.estado === 'Rechazado' ? 'b-cancelled' : 'b-noform';
+    const autoTag = s.auto ? '<span style="font-size:9px;background:var(--accent-bg);color:var(--accent);padding:1px 5px;border-radius:10px;margin-left:5px;">auto</span>' : '';
+    return `<tr>
+      <td style="font-weight:500;font-size:12px;">${esc(s.candidato)}${autoTag}</td>
+      <td style="font-size:11px;color:var(--text2);">${esc(vac ? vac.pos : '—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(s.fecha)}</td>
+      <td><span class="badge ${statusColor}">${esc(s.estado||'Pendiente')}</span></td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.notas||'—')}</td>
+      <td style="display:flex;gap:4px;">
+        ${s.auto ? '<span style="font-size:10px;color:var(--text3);padding:2px 6px;">desde candidatos</span>' : `
+          <button class="btn-secondary" style="font-size:11px;padding:2px 8px;" data-id="${s.id}" onclick="openModal('submittal',parseInt(this.dataset.id))">✏️</button>
+          <button class="btn-danger" data-col="submittals" data-id="${s.id}" onclick="deleteItem(this.dataset.col,parseInt(this.dataset.id));renderMetricas();">✕</button>
+        `}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function getFilteredData(months) {
+  if (months === 'all') return { cands: DB.candidatos, subs: DB.submittals||[], ents: DB.entrevistas||[] };
+  const m = parseInt(months);
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - m);
+  cutoff.setHours(0,0,0,0);
+  const after = d => { if(!d) return false; const dt=new Date(d+'T00:00:00'); return dt >= cutoff; };
+  return {
+    cands: DB.candidatos.filter(c => after(c.fechaProxima) || !c.fechaProxima),
+    subs:  (DB.submittals||[]).filter(s => after(s.fecha)),
+    ents:  (DB.entrevistas||[]).filter(e => true),
+  };
+}
+
+function kpiCard(num, label, color, sub) {
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;">
+    <div style="font-size:28px;font-weight:700;font-family:'DM Mono',monospace;color:${color};letter-spacing:-1px;">${num}</div>
+    <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-top:3px;">${label}</div>
+    ${sub ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">${sub}</div>` : ''}
+  </div>`;
+}
+
+function barChart(items, maxVal, colorFn) {
+  if (!items.length) return '<p style="color:var(--text3);font-size:12px;text-align:center;padding:20px 0;">Sin datos</p>';
+  const max = maxVal || Math.max(...items.map(i=>i.val), 1);
+  return items.map(item => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <div style="width:130px;font-size:11px;color:var(--text2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(item.label)}">${esc(item.label)}</div>
+      <div style="flex:1;background:var(--surface2);border-radius:4px;overflow:hidden;height:22px;">
+        <div style="width:${Math.round((item.val/max)*100)}%;background:${colorFn(item)};height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;transition:width .4s;">
+          <span style="font-size:10px;font-weight:600;color:white;">${item.val > 0 ? item.val : ''}</span>
+        </div>
+      </div>
+      <div style="width:28px;font-size:11px;font-family:'DM Mono',monospace;font-weight:600;color:var(--text);">${item.val}</div>
+    </div>`).join('');
+}
+
+function renderMetricas() {
+  if (!DB.submittals) DB.submittals = [];
+  const mesVal = document.getElementById('metricasMes')?.value || 'all';
+  const { cands, subs, ents } = getFilteredData(mesVal);
+
+  // --- KPIs ---
+  const totalEnt   = ents.length;
+  const subsEtapas = ['Submittal Sent','Entrevista','Entrevista HM','Contratado'];
+  const totalSubs  = DB.candidatos.filter(c => subsEtapas.includes(c.etapa)).length + (DB.submittals||[]).length;
+  const totalContr = DB.candidatos.filter(c => c.etapa === 'Contratado').length;
+  const tasaSub    = totalEnt > 0 ? Math.round((totalSubs/totalEnt)*100) : 0;
+  const tasaContr  = totalSubs > 0 ? Math.round((totalContr/totalSubs)*100) : 0;
+
+  // This month specifically
+  const now = new Date();
+  const thisMo = DB.candidatos.filter(c => {
+    if (c.etapa !== 'Contratado' || !c.fechaProxima) return false;
+    const d = new Date(c.fechaProxima+'T00:00:00');
+    return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+  }).length;
+
+  document.getElementById('kpiCards').innerHTML =
+    kpiCard(totalEnt, 'Entrevistados', 'var(--blue)', null) +
+    kpiCard(totalSubs, 'Submittals enviados', 'var(--accent)', null) +
+    kpiCard(totalContr, 'Contratados', 'var(--green)', null) +
+    kpiCard(tasaSub+'%', 'Tasa entrev → submittal', tasaSub>=50?'var(--green)':'var(--amber)', null) +
+    kpiCard(thisMo, 'Contratados este mes', 'var(--purple)', new Date().toLocaleDateString('es-CO',{month:'long',year:'numeric'}));
+
+  // --- Funnel ---
+  const etapas = ['Aplicado','Submittal Sent','Entrevista','Entrevista HM','Contratado'];
+  const funnelItems = etapas.map(e => ({
+    label: e,
+    val: DB.candidatos.filter(c=>c.etapa===e).length
+  }));
+  const funnelMax = Math.max(...funnelItems.map(i=>i.val),1);
+  const funnelColors = ['#94a3b8','#ec4899','#3b82f6','#7c3aed','#16a34a'];
+  document.getElementById('funnelChart').innerHTML = barChart(
+    funnelItems, funnelMax, (item,i) => funnelColors[etapas.indexOf(item.label)] || '#94a3b8'
+  );
+
+  // --- Submittals por vacante ---
+  const vacMap = {};
+  subs.forEach(s => {
+    const vac = DB.vacantes.find(v=>v.id===s.vacId);
+    const key = vac ? vac.pos : (s.candidato ? 'Sin vacante' : 'Sin vacante');
+    vacMap[key] = (vacMap[key]||0) + 1;
+  });
+  const vacItems = Object.entries(vacMap).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>({label:k,val:v}));
+  document.getElementById('vacantesChart').innerHTML = barChart(vacItems, null, () => 'var(--accent)');
+
+  // --- Contrataciones por mes (últimos 6 meses) ---
+  const meses = [];
+  for (let i=5; i>=0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth()-i);
+    meses.push({ mes: d.getMonth(), anio: d.getFullYear(), label: d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'}) });
+  }
+  const contrItems = meses.map(m => ({
+    label: m.label,
+    val: DB.candidatos.filter(c => {
+      if (c.etapa !== 'Contratado' || !c.fechaProxima) return false;
+      const d = new Date(c.fechaProxima+'T00:00:00');
+      return d.getMonth()===m.mes && d.getFullYear()===m.anio;
+    }).length
+  }));
+  document.getElementById('contratacionesChart').innerHTML = barChart(contrItems, null, item => item.val > 0 ? 'var(--green)' : 'var(--surface3)');
+
+  // --- Submittals table --- auto from candidatos etapa=Submittal Sent + manual
+  const autoSubs = DB.candidatos
+    .filter(c => c.etapa === 'Submittal Sent' || c.etapa === 'Entrevista' || c.etapa === 'Entrevista HM' || c.etapa === 'Contratado')
+    .map(c => ({
+      id: 'auto_'+c.id,
+      candidato: c.nombre,
+      vacId: c.vacId,
+      fecha: c.fechaSubmittal || c.fechaProxima || '',
+      estado: c.etapa === 'Contratado' ? 'Aceptado' : c.etapa === 'Descartado' ? 'Rechazado' : 'Pendiente',
+      notas: c.notas || '',
+      auto: true
+    }));
+  const manualSubs = (DB.submittals||[]);
+  // Merge: avoid duplicates by nombre+vacId
+  const autoKeys = new Set(autoSubs.map(s => s.candidato+'_'+s.vacId));
+  const filtered = manualSubs.filter(s => !autoKeys.has(s.candidato+'_'+s.vacId));
+  const allSubs = [...autoSubs, ...filtered].sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  renderSubmittals(allSubs);
+  renderMetas();
+}
+
+
+
+// ── METAS ─────────────────────────────────────────────────
+function calcMetaProgress(meta) {
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const rangeStart = meta.periodo === 'semana' ? weekStart : monthStart;
+
+  if (meta.tipo === 'submittals') {
+    const subsEtapas = ['Submittal Sent','Entrevista','Entrevista HM','Contratado'];
+    return DB.candidatos.filter(c => {
+      if (!subsEtapas.includes(c.etapa)) return false;
+      if (meta.vacId && c.vacId !== parseInt(meta.vacId)) return false;
+      const fecha = c.fechaSubmittal || c.fechaProxima || '';
+      if (!fecha) return true;
+      return new Date(fecha+'T00:00:00') >= rangeStart;
+    }).length + (DB.submittals||[]).filter(s => {
+      if (meta.vacId && s.vacId !== parseInt(meta.vacId)) return false;
+      return new Date((s.fecha||'')+'T00:00:00') >= rangeStart;
+    }).length;
+  }
+  if (meta.tipo === 'entrevistas') {
+    return (DB.entrevistas||[]).length;
+  }
+  if (meta.tipo === 'contrataciones') {
+    return DB.candidatos.filter(c => {
+      if (c.etapa !== 'Contratado') return false;
+      if (meta.vacId && c.vacId !== parseInt(meta.vacId)) return false;
+      const fecha = c.fechaProxima || '';
+      if (!fecha) return true;
+      return new Date(fecha+'T00:00:00') >= rangeStart;
+    }).length;
+  }
+  return 0;
+}
+
+function checkMetaNotifications() {
+  if (!DB.metas) return;
+  DB.metas.forEach(meta => {
+    if (meta.completada) return;
+    const prog = calcMetaProgress(meta);
+    if (prog >= parseInt(meta.objetivo)) {
+      meta.completada = true;
+      save();
+      // Browser notification
+      if (Notification.permission === 'granted') {
+        new Notification('🎯 ¡Meta completada!', {
+          body: meta.descripcion + ' — ' + prog + '/' + meta.objetivo,
+          icon: ''
+        });
+      } else {
+        // Fallback: show banner
+        showMetaBanner(meta.descripcion);
+      }
+    }
+  });
+}
+
+function showMetaBanner(desc) {
+  let banner = document.getElementById('metaBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'metaBanner';
+    banner.style.cssText = 'position:fixed;top:20px;right:20px;background:#16a34a;color:white;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.15);animation:slideIn .3s ease;';
+    document.body.appendChild(banner);
+  }
+  banner.innerHTML = '🎯 ¡Meta completada! — ' + esc(desc);
+  banner.style.display = 'block';
+  setTimeout(() => { if(banner) banner.style.display='none'; }, 5000);
+}
+
+function requestNotifPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function renderMetas() {
+  if (!DB.metas) DB.metas = [];
+  const container = document.getElementById('metasContainer');
+  if (!container) return;
+  if (!DB.metas.length) {
+    container.innerHTML = '<p style="color:var(--text3);font-size:12px;text-align:center;padding:16px;">Sin metas — agrega una con el botón +</p>';
+    return;
+  }
+  container.innerHTML = DB.metas.map(meta => {
+    const prog = calcMetaProgress(meta);
+    const obj = parseInt(meta.objetivo) || 1;
+    const pct = Math.min(100, Math.round((prog/obj)*100));
+    const done = prog >= obj || meta.completada;
+    const vac = DB.vacantes.find(v => v.id === parseInt(meta.vacId));
+    const barColor = done ? '#16a34a' : pct >= 70 ? '#f59e0b' : 'var(--accent)';
+    return `<div style="background:${done?'rgba(22,163,74,0.06)':'var(--surface2)'};border:1px solid ${done?'rgba(22,163,74,0.3)':'var(--border)'};border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);">${done?'✅ ':''} ${esc(meta.descripcion)}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px;">
+            ${meta.tipo} · ${meta.periodo} ${vac?'· '+esc(vac.pos):''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:${barColor};">${prog}<span style="font-size:12px;color:var(--text3);">/${obj}</span></span>
+          <button class="btn-danger" data-id="${meta.id}" onclick="deleteMeta(parseInt(this.dataset.id))">✕</button>
+        </div>
+      </div>
+      <div style="background:var(--surface3);border-radius:4px;height:8px;overflow:hidden;">
+        <div style="width:${pct}%;background:${barColor};height:100%;border-radius:4px;transition:width .5s;"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;text-align:right;">${pct}% completado</div>
+    </div>`;
+  }).join('');
+  checkMetaNotifications();
+}
+
+function deleteMeta(id) {
+  if (!confirm('¿Eliminar esta meta?')) return;
+  DB.metas = DB.metas.filter(m => m.id !== id);
+  save(); renderMetas();
+}
+
+function saveMeta() {
+  const desc = g('f-metaDesc');
+  if (!desc) { alert('La descripción es obligatoria.'); return; }
+  if (!DB.metas) DB.metas = [];
+  DB.metas.unshift({
+    id: nextId(),
+    descripcion: desc,
+    tipo: g('f-metaTipo'),
+    objetivo: g('f-metaObj') || '5',
+    periodo: g('f-metaPeriodo'),
+    vacId: document.getElementById('f-metaVac')?.value || '',
+    completada: false,
+  });
+  save(); closeModal(); renderMetas();
+}
+
+
 // ── Init ──────────────────────────────────────────────────
 function renderAll() {
   renderVacantes();
@@ -1216,6 +1666,7 @@ function renderAll() {
   if (currentTab === 'candidatos') renderCandidatos();
   if (currentTab === 'procesos') renderProcesos();
   if (currentTab === 'entrevistas') renderEntrevistas();
+  if (currentTab === 'metricas') { renderMetricas(); renderMetas(); }
   if (currentTab === 'tareas') renderTareas();
 }
 
@@ -1226,6 +1677,8 @@ setInterval(updateClock, 1000);
 updateClock();
 doLoad();
 setInterval(doLoad, 20000);
+requestNotifPermission();
+setInterval(checkMetaNotifications, 60000);
 </script>
 </body>
 </html>
