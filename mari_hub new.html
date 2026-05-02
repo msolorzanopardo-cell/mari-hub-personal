@@ -330,7 +330,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     </div>
 
     <!-- KPI Cards -->
-    <div id="kpiCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;"></div>
+    <div id="kpiCards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;"></div>
 
     <!-- Charts row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
@@ -854,6 +854,9 @@ function changeCandStatus(id, val) {
     if (val === 'Submittal Sent' && !c.fechaSubmittal) {
       c.fechaSubmittal = new Date().toISOString().slice(0,10);
     }
+    if (val === 'Contratado' && !c.fechaContratacion) {
+      c.fechaContratacion = new Date().toISOString().slice(0,10);
+    }
     save(); renderCandidatos();
   }
 }
@@ -1012,6 +1015,7 @@ function openModal(type, id = null) {
         <div class="modal-field"><label>Fuente</label><input id="f-fuente" value="${esc(c.fuente||'')}" placeholder="LinkedIn / Referido..."></div>
         <div class="modal-field"><label>Próxima acción</label><input id="f-proxAccion" value="${esc(c.proxAccion||'')}" placeholder="Entrevista técnica..."></div>
         <div class="modal-field"><label>Fecha próxima acción</label><input id="f-fechaProxima" type="date" value="${c.fechaProxima||''}"></div>
+        <div class="modal-field" id="fechaContrField" style="${(c.etapa==='Contratado')?'':'display:none'}"><label>📅 Fecha de contratación</label><input type="date" id="f-fechaContratacion" value="${c.fechaContratacion||new Date().toISOString().slice(0,10)}"></div>
         <div class="modal-field"><label>LinkedIn / CV</label><input id="f-link" value="${esc(c.link||'')}" placeholder="URL..."></div>
         <div class="modal-field"><label>Salario esperado</label><input id="f-salEsperado" value="${esc(c.salEsperado||'')}" placeholder="3.500.000 COP..."></div>
         <div class="modal-field full"><label>Notas</label><textarea id="f-notas" placeholder="Comentarios del proceso...">${esc(c.notas||'')}</textarea></div>
@@ -1267,7 +1271,8 @@ function saveCandidato() {
   const vacId = document.getElementById('f-vacId')?.value ? parseInt(document.getElementById('f-vacId').value) : null;
   const etapaVal = g('f-etapa');
   const fechaSubVal = g('f-fechaSubmittal') || (etapaVal === 'Submittal Sent' ? new Date().toISOString().slice(0,10) : (()=>{ const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null; return ex?.fechaSubmittal || ''; })());
-  const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal };
+  const fechaContrVal = g('f-fechaContratacion') || (()=>{ const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null; return ex?.fechaContratacion || ''; })();
+  const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal, fechaContratacion: etapaVal === 'Contratado' ? fechaContrVal : fechaContrVal };
   if (_editId) {
     Object.assign(DB.candidatos.find(x => x.id === _editId), data);
   } else {
@@ -1402,6 +1407,8 @@ function saveEntrevista() {
 function toggleSubmittalDate(val) {
   const f = document.getElementById('submittalDateField');
   if (f) f.style.display = val === 'Submittal Sent' ? '' : 'none';
+  const fc = document.getElementById('fechaContrField');
+  if (fc) fc.style.display = val === 'Contratado' ? '' : 'none';
 }
 
 function saveSubmittal() {
@@ -1485,7 +1492,7 @@ function renderContratados() {
       <td style="font-weight:500;font-size:12px;">${esc(c.nombre)}</td>
       <td style="font-size:11px;color:var(--text2);">${esc(vac?vac.pos:'—')}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaSubmittal)}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaProxima)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);font-weight:600;">${fmtDate(c.fechaContratacion)||'—'}</td>
       <td style="font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.notas||'—')}</td>
     </tr>`;
   }).join('');
@@ -1552,7 +1559,7 @@ function renderMetricas() {
     kpiCard(totalEnt, 'Entrevistados', 'var(--blue)', null) +
     kpiCard(totalSubs, 'Submittals enviados', 'var(--accent)', null) +
     kpiCard(totalContr, 'Contratados', 'var(--green)', null) +
-    kpiCard(tasaSub+'%', 'Tasa entrev → submittal', tasaSub>=50?'var(--green)':'var(--amber)', null) +
+
     kpiCard(thisMo, 'Contratados este mes', 'var(--purple)', new Date().toLocaleDateString('es-CO',{month:'long',year:'numeric'}));
 
   // --- Funnel ---
