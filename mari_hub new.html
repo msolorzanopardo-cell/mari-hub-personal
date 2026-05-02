@@ -365,9 +365,12 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     </div>
 
     <!-- Tabla de submittals -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <h3 style="font-size:13px;font-weight:600;">Submittals enviados</h3>
+        <div>
+          <h3 style="font-size:13px;font-weight:600;">📤 Submittals enviados</h3>
+          <p style="font-size:11px;color:var(--text2);margin-top:2px;">Todos los candidatos que pasaron por Submittal Sent</p>
+        </div>
         <button class="btn-primary" onclick="openModal('submittal')" style="font-size:11px;padding:5px 12px;">+ Registrar submittal</button>
       </div>
       <div class="table-wrap">
@@ -376,11 +379,52 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
             <th>Candidato</th>
             <th>Vacante</th>
             <th>Fecha de envío</th>
-            <th>Estado</th>
+            <th>Etapa actual</th>
             <th>Notas</th>
             <th>Acción</th>
           </tr></thead>
           <tbody id="tbodySubmittals"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Entrevista HM -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+      <div style="margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;">🤝 En Entrevista con HM</h3>
+        <p style="font-size:11px;color:var(--text2);margin-top:2px;">Candidatos actualmente en etapa Entrevista HM</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Candidato</th>
+            <th>Vacante</th>
+            <th>Fecha submittal</th>
+            <th>Próxima acción</th>
+            <th>Fecha próxima acción</th>
+            <th>Notas</th>
+          </tr></thead>
+          <tbody id="tbodyHM"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Contratados -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+      <div style="margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;">🎉 Contratados</h3>
+        <p style="font-size:11px;color:var(--text2);margin-top:2px;">Candidatos que llegaron a Contratado</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Candidato</th>
+            <th>Vacante</th>
+            <th>Fecha submittal</th>
+            <th>Fecha contratación</th>
+            <th>Notas</th>
+          </tr></thead>
+          <tbody id="tbodyContratados"></tbody>
         </table>
       </div>
     </div>
@@ -804,7 +848,14 @@ function renderCandidatos() {
 
 function changeCandStatus(id, val) {
   const c = DB.candidatos.find(x => x.id === id);
-  if (c) { c.etapa = val; save(); renderCandidatos(); }
+  if (c) {
+    c.etapa = val;
+    // Auto-record submittal date when moved to Submittal Sent
+    if (val === 'Submittal Sent' && !c.fechaSubmittal) {
+      c.fechaSubmittal = new Date().toISOString().slice(0,10);
+    }
+    save(); renderCandidatos();
+  }
 }
 
 // ── PROCESOS ──────────────────────────────────────────────
@@ -1214,7 +1265,9 @@ function saveCandidato() {
   const nombre = g('f-nombre');
   if (!nombre) { alert('El nombre es obligatorio.'); return; }
   const vacId = document.getElementById('f-vacId')?.value ? parseInt(document.getElementById('f-vacId').value) : null;
-  const data = { nombre, vacId, etapa: g('f-etapa'), fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: g('f-fechaSubmittal') };
+  const etapaVal = g('f-etapa');
+  const fechaSubVal = g('f-fechaSubmittal') || (etapaVal === 'Submittal Sent' ? new Date().toISOString().slice(0,10) : (()=>{ const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null; return ex?.fechaSubmittal || ''; })());
+  const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal };
   if (_editId) {
     Object.assign(DB.candidatos.find(x => x.id === _editId), data);
   } else {
@@ -1371,25 +1424,69 @@ function saveSubmittal() {
   save(); closeModal(); renderMetricas();
 }
 
+function etapaBadge(etapa) {
+  const map = {
+    'Aplicado':'b-noform','Submittal Sent':'b-proceso','Entrevista':'b-entrevista',
+    'Entrevista HM':'b-forecast','Contratado':'b-open','Descartado':'b-cancelled'
+  };
+  return `<span class="badge ${map[etapa]||'b-noform'}">${esc(etapa||'—')}</span>`;
+}
+
 function renderSubmittals(data) {
   const tbody = document.getElementById('tbodySubmittals');
   if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin submittals — los candidatos en etapa Submittal Sent aparecen aquí automáticamente</td></tr>'; return; }
   tbody.innerHTML = data.map(s => {
     const vac = DB.vacantes.find(v => v.id === s.vacId);
-    const statusColor = s.estado === 'Aceptado' ? 'b-open' : s.estado === 'Rechazado' ? 'b-cancelled' : 'b-noform';
+    const cand = s.auto ? DB.candidatos.find(c => c.nombre === s.candidato && c.vacId === s.vacId) : null;
+    const etapaActual = cand ? cand.etapa : 'Submittal Sent';
     const autoTag = s.auto ? '<span style="font-size:9px;background:var(--accent-bg);color:var(--accent);padding:1px 5px;border-radius:10px;margin-left:5px;">auto</span>' : '';
     return `<tr>
       <td style="font-weight:500;font-size:12px;">${esc(s.candidato)}${autoTag}</td>
       <td style="font-size:11px;color:var(--text2);">${esc(vac ? vac.pos : '—')}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(s.fecha)}</td>
-      <td><span class="badge ${statusColor}">${esc(s.estado||'Pendiente')}</span></td>
-      <td style="font-size:11px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.notas||'—')}</td>
+      <td>${etapaBadge(etapaActual)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.notas||cand?.notas||'—')}</td>
       <td style="display:flex;gap:4px;">
-        ${s.auto ? '<span style="font-size:10px;color:var(--text3);padding:2px 6px;">desde candidatos</span>' : `
+        ${s.auto ? '<span style="font-size:10px;color:var(--text3);padding:2px 6px;">auto</span>' : `
           <button class="btn-secondary" style="font-size:11px;padding:2px 8px;" data-id="${s.id}" onclick="openModal('submittal',parseInt(this.dataset.id))">✏️</button>
           <button class="btn-danger" data-col="submittals" data-id="${s.id}" onclick="deleteItem(this.dataset.col,parseInt(this.dataset.id));renderMetricas();">✕</button>
         `}
       </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderHM() {
+  const tbody = document.getElementById('tbodyHM');
+  if (!tbody) return;
+  const data = DB.candidatos.filter(c => c.etapa === 'Entrevista HM');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin candidatos en Entrevista HM</td></tr>'; return; }
+  tbody.innerHTML = data.map(c => {
+    const vac = DB.vacantes.find(v => v.id === c.vacId);
+    return `<tr style="background:rgba(124,58,237,0.06);">
+      <td style="font-weight:500;font-size:12px;">${esc(c.nombre)}</td>
+      <td style="font-size:11px;color:var(--text2);">${esc(vac?vac.pos:'—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaSubmittal)}</td>
+      <td style="font-size:11px;">${esc(c.proxAccion||'—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaProxima)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.notas||'—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderContratados() {
+  const tbody = document.getElementById('tbodyContratados');
+  if (!tbody) return;
+  const data = DB.candidatos.filter(c => c.etapa === 'Contratado');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Sin contratados aún — ¡pronto llegará el primero! 🎉</td></tr>'; return; }
+  tbody.innerHTML = data.map(c => {
+    const vac = DB.vacantes.find(v => v.id === c.vacId);
+    return `<tr style="background:rgba(22,163,74,0.07);">
+      <td style="font-weight:500;font-size:12px;">${esc(c.nombre)}</td>
+      <td style="font-size:11px;color:var(--text2);">${esc(vac?vac.pos:'—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaSubmittal)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaProxima)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.notas||'—')}</td>
     </tr>`;
   }).join('');
 }
@@ -1438,8 +1535,7 @@ function renderMetricas() {
 
   // --- KPIs ---
   const totalEnt   = ents.length;
-  const subsEtapas = ['Submittal Sent','Entrevista','Entrevista HM','Contratado'];
-  const totalSubs  = DB.candidatos.filter(c => subsEtapas.includes(c.etapa)).length + (DB.submittals||[]).length;
+  const totalSubs  = DB.candidatos.filter(c => c.etapa === 'Submittal Sent').length + (DB.submittals||[]).length;
   const totalContr = DB.candidatos.filter(c => c.etapa === 'Contratado').length;
   const tasaSub    = totalEnt > 0 ? Math.round((totalSubs/totalEnt)*100) : 0;
   const tasaContr  = totalSubs > 0 ? Math.round((totalContr/totalSubs)*100) : 0;
@@ -1498,8 +1594,9 @@ function renderMetricas() {
   document.getElementById('contratacionesChart').innerHTML = barChart(contrItems, null, item => item.val > 0 ? 'var(--green)' : 'var(--surface3)');
 
   // --- Submittals table --- auto from candidatos etapa=Submittal Sent + manual
+  // Include all who are currently in Submittal Sent OR ever were (have fechaSubmittal recorded)
   const autoSubs = DB.candidatos
-    .filter(c => c.etapa === 'Submittal Sent' || c.etapa === 'Entrevista' || c.etapa === 'Entrevista HM' || c.etapa === 'Contratado')
+    .filter(c => c.etapa === 'Submittal Sent' || c.fechaSubmittal)
     .map(c => ({
       id: 'auto_'+c.id,
       candidato: c.nombre,
@@ -1515,6 +1612,8 @@ function renderMetricas() {
   const filtered = manualSubs.filter(s => !autoKeys.has(s.candidato+'_'+s.vacId));
   const allSubs = [...autoSubs, ...filtered].sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
   renderSubmittals(allSubs);
+  renderHM();
+  renderContratados();
   renderMetas();
 }
 
@@ -1528,9 +1627,8 @@ function calcMetaProgress(meta) {
   const rangeStart = meta.periodo === 'semana' ? weekStart : monthStart;
 
   if (meta.tipo === 'submittals') {
-    const subsEtapas = ['Submittal Sent','Entrevista','Entrevista HM','Contratado'];
     return DB.candidatos.filter(c => {
-      if (!subsEtapas.includes(c.etapa)) return false;
+      if (c.etapa !== 'Submittal Sent') return false;
       if (meta.vacId && c.vacId !== parseInt(meta.vacId)) return false;
       const fecha = c.fechaSubmittal || c.fechaProxima || '';
       if (!fecha) return true;
