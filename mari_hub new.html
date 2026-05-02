@@ -421,7 +421,8 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
             <th>Candidato</th>
             <th>Vacante</th>
             <th>Fecha submittal</th>
-            <th>Fecha contratación</th>
+            <th>Fecha oferta</th>
+            <th>Fecha ingreso</th>
             <th>Notas</th>
           </tr></thead>
           <tbody id="tbodyContratados"></tbody>
@@ -439,9 +440,10 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
         <table>
           <thead><tr>
             <th>Vacante</th>
-            <th>Candidato contratado</th>
+            <th>Candidato</th>
             <th>Fecha apertura</th>
-            <th>Fecha contratación</th>
+            <th>Fecha oferta</th>
+            <th>Fecha ingreso</th>
             <th style="text-align:center;">Time to Fill</th>
             <th style="text-align:center;">Evaluación</th>
           </tr></thead>
@@ -875,8 +877,8 @@ function changeCandStatus(id, val) {
     if (val === 'Submittal Sent' && !c.fechaSubmittal) {
       c.fechaSubmittal = new Date().toISOString().slice(0,10);
     }
-    if (val === 'Contratado' && !c.fechaContratacion) {
-      c.fechaContratacion = new Date().toISOString().slice(0,10);
+    if (val === 'Contratado' && !c.fechaOferta) {
+      c.fechaOferta = new Date().toISOString().slice(0,10);
     }
     save(); renderCandidatos();
   }
@@ -1036,7 +1038,8 @@ function openModal(type, id = null) {
         <div class="modal-field"><label>Fuente</label><input id="f-fuente" value="${esc(c.fuente||'')}" placeholder="LinkedIn / Referido..."></div>
         <div class="modal-field"><label>Próxima acción</label><input id="f-proxAccion" value="${esc(c.proxAccion||'')}" placeholder="Entrevista técnica..."></div>
         <div class="modal-field"><label>Fecha próxima acción</label><input id="f-fechaProxima" type="date" value="${c.fechaProxima||''}"></div>
-        <div class="modal-field" id="fechaContrField" style="${(c.etapa==='Contratado')?'':'display:none'}"><label>📅 Fecha de contratación</label><input type="date" id="f-fechaContratacion" value="${c.fechaContratacion||new Date().toISOString().slice(0,10)}"></div>
+        <div class="modal-field" id="fechaContrField" style="${(c.etapa==='Contratado')?'':'display:none'}"><label>📋 Fecha de oferta / contratación <span style="font-size:10px;color:var(--text3);">(para Time to Fill)</span></label><input type="date" id="f-fechaOferta" value="${c.fechaOferta||new Date().toISOString().slice(0,10)}"></div>
+        <div class="modal-field" id="fechaIngresoField" style="${(c.etapa==='Contratado')?'':'display:none'}"><label>🚀 Fecha de ingreso <span style="font-size:10px;color:var(--text3);">(día que empieza)</span></label><input type="date" id="f-fechaIngreso" value="${c.fechaIngreso||''}"></div>
         <div class="modal-field"><label>LinkedIn / CV</label><input id="f-link" value="${esc(c.link||'')}" placeholder="URL..."></div>
         <div class="modal-field"><label>Salario esperado</label><input id="f-salEsperado" value="${esc(c.salEsperado||'')}" placeholder="3.500.000 COP..."></div>
         <div class="modal-field full"><label>Notas</label><textarea id="f-notas" placeholder="Comentarios del proceso...">${esc(c.notas||'')}</textarea></div>
@@ -1292,8 +1295,10 @@ function saveCandidato() {
   const vacId = document.getElementById('f-vacId')?.value ? parseInt(document.getElementById('f-vacId').value) : null;
   const etapaVal = g('f-etapa');
   const fechaSubVal = g('f-fechaSubmittal') || (etapaVal === 'Submittal Sent' ? new Date().toISOString().slice(0,10) : (()=>{ const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null; return ex?.fechaSubmittal || ''; })());
-  const fechaContrVal = g('f-fechaContratacion') || (()=>{ const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null; return ex?.fechaContratacion || ''; })();
-  const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal, fechaContratacion: etapaVal === 'Contratado' ? fechaContrVal : fechaContrVal };
+  const ex = _editId ? DB.candidatos.find(x=>x.id===_editId) : null;
+  const fechaOfertaVal = g('f-fechaOferta') || ex?.fechaOferta || '';
+  const fechaIngresoVal = g('f-fechaIngreso') || ex?.fechaIngreso || '';
+  const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal, fechaOferta: fechaOfertaVal, fechaIngreso: fechaIngresoVal };
   if (_editId) {
     Object.assign(DB.candidatos.find(x => x.id === _editId), data);
   } else {
@@ -1430,6 +1435,8 @@ function toggleSubmittalDate(val) {
   if (f) f.style.display = val === 'Submittal Sent' ? '' : 'none';
   const fc = document.getElementById('fechaContrField');
   if (fc) fc.style.display = val === 'Contratado' ? '' : 'none';
+  const fi = document.getElementById('fechaIngresoField');
+  if (fi) fi.style.display = val === 'Contratado' ? '' : 'none';
 }
 
 function saveSubmittal() {
@@ -1506,14 +1513,15 @@ function renderContratados() {
   const tbody = document.getElementById('tbodyContratados');
   if (!tbody) return;
   const data = DB.candidatos.filter(c => c.etapa === 'Contratado');
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Sin contratados aún — ¡pronto llegará el primero! 🎉</td></tr>'; return; }
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin contratados aún — ¡pronto llegará el primero! 🎉</td></tr>'; return; }
   tbody.innerHTML = data.map(c => {
     const vac = DB.vacantes.find(v => v.id === c.vacId);
     return `<tr style="background:rgba(22,163,74,0.07);">
       <td style="font-weight:500;font-size:12px;">${esc(c.nombre)}</td>
       <td style="font-size:11px;color:var(--text2);">${esc(vac?vac.pos:'—')}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(c.fechaSubmittal)}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);font-weight:600;">${fmtDate(c.fechaContratacion)||'—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);">${fmtDate(c.fechaOferta)||'—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);font-weight:600;">${fmtDate(c.fechaIngreso)||'—'}</td>
       <td style="font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.notas||'—')}</td>
     </tr>`;
   }).join('');
@@ -1572,8 +1580,8 @@ function renderMetricas() {
   const now = new Date();
   const thisMo = DB.candidatos.filter(c => {
     if (c.etapa !== 'Contratado') return false;
-    const fecha = c.fechaContratacion || c.fechaProxima;
-    if (!fecha) return true; // count if no date set
+    const fecha = c.fechaOferta || c.fechaProxima;
+    if (!fecha) return true;
     const d = new Date(fecha+'T00:00:00');
     return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
   }).length;
@@ -1624,7 +1632,7 @@ function renderMetricas() {
     label: m.label,
     val: DB.candidatos.filter(c => {
       if (c.etapa !== 'Contratado') return false;
-      const fecha = c.fechaContratacion || c.fechaProxima;
+      const fecha = c.fechaOferta || c.fechaProxima;
       if (!fecha) return false;
       const d = new Date(fecha+'T00:00:00');
       return d.getMonth()===m.mes && d.getFullYear()===m.anio;
@@ -1661,34 +1669,37 @@ function renderTTF() {
   const tbody = document.getElementById('tbodyTTF');
   if (!tbody) return;
   const rows = DB.candidatos
-    .filter(c => c.etapa === 'Contratado' && c.vacId && (c.fechaContratacion || c.fechaProxima))
+    .filter(c => c.etapa === 'Contratado' && c.vacId)
     .map(c => {
       const vac = DB.vacantes.find(v => v.id === c.vacId);
       if (!vac) return null;
-      const openDate = vac.openDate || '';
-      const contrDate = c.fechaContratacion || c.fechaProxima || '';
+      const openDate  = vac.openDate || '';
+      const ofertaDate = c.fechaOferta || '';
+      const ingresoDate = c.fechaIngreso || '';
       let days = null;
-      if (openDate && contrDate) {
-        days = Math.round((new Date(contrDate+'T00:00:00') - new Date(openDate+'T00:00:00')) / 86400000);
+      if (openDate && ofertaDate) {
+        days = Math.round((new Date(ofertaDate+'T00:00:00') - new Date(openDate+'T00:00:00')) / 86400000);
+        if (days < 0) days = null;
       }
-      return { vac, c, openDate, contrDate, days };
+      return { vac, c, openDate, ofertaDate, ingresoDate, days };
     })
     .filter(r => r !== null)
     .sort((a,b) => (a.days||999) - (b.days||999));
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin datos aún — aparece cuando haya candidatos Contratados con vacante asignada</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Sin datos — aparece cuando haya candidatos Contratados con fecha de oferta registrada</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map(r => {
     const color = r.days === null ? 'var(--text3)' : r.days <= 30 ? 'var(--green)' : r.days <= 60 ? 'var(--amber)' : 'var(--red)';
-    const label = r.days === null ? '—' : r.days <= 30 ? '🟢 Rápido' : r.days <= 60 ? '🟡 Normal' : '🔴 Largo';
+    const label = r.days === null ? 'Sin fecha oferta' : r.days <= 30 ? '🟢 Rápido' : r.days <= 60 ? '🟡 Normal' : '🔴 Largo';
     return `<tr>
       <td style="font-weight:500;font-size:12px;">${esc(r.vac.pos)}</td>
       <td style="font-size:12px;">${esc(r.c.nombre)}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(r.openDate)}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);">${fmtDate(r.contrDate)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);">${fmtDate(r.ofertaDate)||'—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);">${fmtDate(r.ingresoDate)||'—'}</td>
       <td style="text-align:center;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:${color};">${r.days !== null ? r.days+'d' : '—'}</td>
       <td style="text-align:center;font-size:12px;">${label}</td>
     </tr>`;
@@ -1723,7 +1734,7 @@ function calcMetaProgress(meta) {
     return DB.candidatos.filter(c => {
       if (c.etapa !== 'Contratado') return false;
       if (meta.vacId && c.vacId !== parseInt(meta.vacId)) return false;
-      const fecha = c.fechaContratacion || c.fechaProxima || '';
+      const fecha = c.fechaOferta || c.fechaProxima || '';
       if (!fecha) return true;
       return new Date(fecha+'T00:00:00') >= rangeStart;
     }).length;
