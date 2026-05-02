@@ -1569,9 +1569,16 @@ function renderMetricas() {
 
   // --- Submittals por vacante ---
   const vacMap = {};
-  subs.forEach(s => {
+  // Count from candidatos with Submittal Sent or fechaSubmittal
+  DB.candidatos.filter(c => c.etapa === 'Submittal Sent' || c.fechaSubmittal).forEach(c => {
+    const vac = DB.vacantes.find(v => v.id === c.vacId);
+    const key = vac ? vac.pos : 'Sin vacante asignada';
+    vacMap[key] = (vacMap[key]||0) + 1;
+  });
+  // Also count manual submittals
+  (DB.submittals||[]).forEach(s => {
     const vac = DB.vacantes.find(v=>v.id===s.vacId);
-    const key = vac ? vac.pos : (s.candidato ? 'Sin vacante' : 'Sin vacante');
+    const key = vac ? vac.pos : 'Sin vacante asignada';
     vacMap[key] = (vacMap[key]||0) + 1;
   });
   const vacItems = Object.entries(vacMap).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>({label:k,val:v}));
