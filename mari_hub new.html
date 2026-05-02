@@ -330,7 +330,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     </div>
 
     <!-- KPI Cards -->
-    <div id="kpiCards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;"></div>
+    <div id="kpiCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;"></div>
 
     <!-- Charts row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
@@ -425,6 +425,27 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
             <th>Notas</th>
           </tr></thead>
           <tbody id="tbodyContratados"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Time to Fill por vacante -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px;">
+      <div style="margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;">⏱ Time to Fill por vacante</h3>
+        <p style="font-size:11px;color:var(--text2);margin-top:2px;">Días desde apertura de la vacante hasta contratación del candidato</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Vacante</th>
+            <th>Candidato contratado</th>
+            <th>Fecha apertura</th>
+            <th>Fecha contratación</th>
+            <th style="text-align:center;">Time to Fill</th>
+            <th style="text-align:center;">Evaluación</th>
+          </tr></thead>
+          <tbody id="tbodyTTF"></tbody>
         </table>
       </div>
     </div>
@@ -1632,7 +1653,46 @@ function renderMetricas() {
   renderSubmittals(allSubs);
   renderHM();
   renderContratados();
+  renderTTF();
   renderMetas();
+}
+
+function renderTTF() {
+  const tbody = document.getElementById('tbodyTTF');
+  if (!tbody) return;
+  const rows = DB.candidatos
+    .filter(c => c.etapa === 'Contratado' && c.vacId && (c.fechaContratacion || c.fechaProxima))
+    .map(c => {
+      const vac = DB.vacantes.find(v => v.id === c.vacId);
+      if (!vac) return null;
+      const openDate = vac.openDate || '';
+      const contrDate = c.fechaContratacion || c.fechaProxima || '';
+      let days = null;
+      if (openDate && contrDate) {
+        days = Math.round((new Date(contrDate+'T00:00:00') - new Date(openDate+'T00:00:00')) / 86400000);
+      }
+      return { vac, c, openDate, contrDate, days };
+    })
+    .filter(r => r !== null)
+    .sort((a,b) => (a.days||999) - (b.days||999));
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin datos aún — aparece cuando haya candidatos Contratados con vacante asignada</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const color = r.days === null ? 'var(--text3)' : r.days <= 30 ? 'var(--green)' : r.days <= 60 ? 'var(--amber)' : 'var(--red)';
+    const label = r.days === null ? '—' : r.days <= 30 ? '🟢 Rápido' : r.days <= 60 ? '🟡 Normal' : '🔴 Largo';
+    return `<tr>
+      <td style="font-weight:500;font-size:12px;">${esc(r.vac.pos)}</td>
+      <td style="font-size:12px;">${esc(r.c.nombre)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${fmtDate(r.openDate)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);">${fmtDate(r.contrDate)}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:${color};">${r.days !== null ? r.days+'d' : '—'}</td>
+      <td style="text-align:center;font-size:12px;">${label}</td>
+    </tr>`;
+  }).join('');
 }
 
 
