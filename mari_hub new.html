@@ -1550,8 +1550,10 @@ function renderMetricas() {
   // This month specifically
   const now = new Date();
   const thisMo = DB.candidatos.filter(c => {
-    if (c.etapa !== 'Contratado' || !c.fechaProxima) return false;
-    const d = new Date(c.fechaProxima+'T00:00:00');
+    if (c.etapa !== 'Contratado') return false;
+    const fecha = c.fechaContratacion || c.fechaProxima;
+    if (!fecha) return true; // count if no date set
+    const d = new Date(fecha+'T00:00:00');
     return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
   }).length;
 
@@ -1600,8 +1602,10 @@ function renderMetricas() {
   const contrItems = meses.map(m => ({
     label: m.label,
     val: DB.candidatos.filter(c => {
-      if (c.etapa !== 'Contratado' || !c.fechaProxima) return false;
-      const d = new Date(c.fechaProxima+'T00:00:00');
+      if (c.etapa !== 'Contratado') return false;
+      const fecha = c.fechaContratacion || c.fechaProxima;
+      if (!fecha) return false;
+      const d = new Date(fecha+'T00:00:00');
       return d.getMonth()===m.mes && d.getFullYear()===m.anio;
     }).length
   }));
@@ -1659,7 +1663,7 @@ function calcMetaProgress(meta) {
     return DB.candidatos.filter(c => {
       if (c.etapa !== 'Contratado') return false;
       if (meta.vacId && c.vacId !== parseInt(meta.vacId)) return false;
-      const fecha = c.fechaProxima || '';
+      const fecha = c.fechaContratacion || c.fechaProxima || '';
       if (!fecha) return true;
       return new Date(fecha+'T00:00:00') >= rangeStart;
     }).length;
