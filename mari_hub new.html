@@ -709,7 +709,7 @@ function renderVacantes() {
   data.forEach(v => {
     const ag = aging(v);
     const rc = STATUS_COLORS_VAC[v.status] || '';
-    const candCount = DB.candidatos.filter(c => c.vacId === v.id).length;
+    const candCount = DB.candidatos.filter(c => c.vacId === v.id && c.etapa !== 'Descartado').length;
     const expanded = _vacExpanded.has(v.id);
     const editing  = _vacEditing.has(v.id);
 
