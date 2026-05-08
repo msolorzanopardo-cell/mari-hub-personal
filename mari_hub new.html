@@ -224,6 +224,36 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 .drag-handle:active { cursor: grabbing; }
 tr.drag-over > td { border-top: 2px solid var(--accent) !important; }
 tr.dragging { opacity: 0.4; }
+
+/* Global search */
+.gsearch-wrap { position: relative; }
+.gsearch-input { font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface2); border: 1px solid var(--border2); border-radius: 20px; padding: 6px 14px 6px 34px; width: 200px; outline: none; transition: all .2s; }
+.gsearch-input:focus { width: 260px; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); background: var(--surface); }
+.gsearch-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 13px; pointer-events: none; color: var(--text3); }
+.gsearch-results { position: absolute; top: calc(100% + 6px); right: 0; width: 340px; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 900; max-height: 400px; overflow-y: auto; display: none; }
+.gsearch-results.show { display: block; }
+.gsearch-section { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.gsearch-section:last-child { border-bottom: none; }
+.gsearch-section-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; padding: 4px 14px 2px; }
+.gsearch-item { display: flex; align-items: center; gap: 10px; padding: 7px 14px; cursor: pointer; transition: background .1s; }
+.gsearch-item:hover { background: var(--surface2); }
+.gsearch-item-icon { font-size: 13px; width: 20px; text-align: center; flex-shrink: 0; }
+.gsearch-item-main { font-size: 12px; font-weight: 500; color: var(--text); }
+.gsearch-item-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
+.gsearch-empty { padding: 20px; text-align: center; color: var(--text3); font-size: 12px; }
+mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; padding: 0 1px; font-style: normal; }
+
+/* Scratchpad */
+.scratchpad-btn { position: fixed; bottom: 24px; right: 24px; width: 44px; height: 44px; border-radius: 50%; background: var(--accent); color: white; border: none; font-size: 18px; cursor: pointer; box-shadow: 0 4px 14px rgba(236,72,153,0.4); z-index: 800; transition: transform .2s, box-shadow .2s; display: flex; align-items: center; justify-content: center; }
+.scratchpad-btn:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(236,72,153,0.5); }
+.scratchpad-panel { position: fixed; bottom: 80px; right: 24px; width: 300px; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0,0,0,0.14); z-index: 800; display: none; flex-direction: column; overflow: hidden; }
+.scratchpad-panel.open { display: flex; }
+.scratchpad-header { padding: 10px 14px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.scratchpad-header span { font-size: 12px; font-weight: 600; color: var(--text2); }
+.scratchpad-header button { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text3); padding: 0 2px; }
+.scratchpad-header button:hover { color: var(--text); }
+.scratchpad-textarea { width: 100%; min-height: 180px; max-height: 320px; resize: vertical; font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface); border: none; padding: 12px 14px; outline: none; line-height: 1.6; }
+.scratchpad-footer { padding: 6px 12px; background: var(--surface2); border-top: 1px solid var(--border); font-size: 10px; color: var(--text3); text-align: right; }
 </style>
 </head>
 <body>
@@ -237,6 +267,11 @@ tr.dragging { opacity: 0.4; }
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
+    <div class="gsearch-wrap">
+      <span class="gsearch-icon">🔍</span>
+      <input class="gsearch-input" id="globalSearch" type="text" placeholder="Buscar en todo..." oninput="runGlobalSearch(this.value)" onfocus="if(this.value)showGlobalResults()" autocomplete="off">
+      <div class="gsearch-results" id="gsearchResults"></div>
+    </div>
     <span><span class="save-dot" id="saveDot"></span><span id="saveLabel" style="font-size:11px;color:var(--text2);">Conectando...</span></span>
     <button class="btn-secondary" onclick="syncNow()" style="font-size:11px;padding:4px 10px;">↻ Sync</button>
     <button class="btn-secondary" onclick="exportData()" style="font-size:11px;padding:4px 10px;">⬇ Exportar</button>
@@ -551,6 +586,20 @@ tr.dragging { opacity: 0.4; }
 <!-- Modales -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
   <div class="modal" id="modalContent"></div>
+</div>
+
+<!-- Scratchpad -->
+<button class="scratchpad-btn" onclick="toggleScratchpad()" title="Bloc de notas rápido">✍️</button>
+<div class="scratchpad-panel" id="scratchpadPanel">
+  <div class="scratchpad-header">
+    <span>✍️ Bloc de notas</span>
+    <div style="display:flex;gap:6px;">
+      <button onclick="clearScratchpad()" title="Limpiar">🗑</button>
+      <button onclick="toggleScratchpad()" title="Cerrar">✕</button>
+    </div>
+  </div>
+  <textarea class="scratchpad-textarea" id="scratchpadText" placeholder="Apunta lo que necesites al vuelo...&#10;&#10;Ideas, pendientes, nombres, números..." oninput="saveScratchpad()"></textarea>
+  <div class="scratchpad-footer" id="scratchpadCount">0 caracteres</div>
 </div>
 
 <script>
@@ -1958,6 +2007,144 @@ function saveMeta() {
   save(); closeModal(); renderMetas();
 }
 
+
+// ── Global Search ─────────────────────────────────────────
+function highlight(text, q) {
+  if (!q) return esc(text);
+  const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
+  return esc(text).replace(re, '<mark>$1</mark>');
+}
+
+function runGlobalSearch(q) {
+  const box = document.getElementById('gsearchResults');
+  q = (q || '').trim().toLowerCase();
+  if (!q) { box.classList.remove('show'); box.innerHTML = ''; return; }
+
+  const vacs = DB.vacantes.filter(v =>
+    v.pos.toLowerCase().includes(q) || (v.hm||'').toLowerCase().includes(q) || (v.vert||'').toLowerCase().includes(q)
+  ).slice(0, 5);
+
+  const cands = DB.candidatos.filter(c =>
+    c.nombre.toLowerCase().includes(q) || (c.notas||'').toLowerCase().includes(q) || (c.proxAccion||'').toLowerCase().includes(q)
+  ).slice(0, 5);
+
+  const tareas = DB.tareas.filter(t =>
+    t.texto.toLowerCase().includes(q) || (t.notas||'').toLowerCase().includes(q)
+  ).slice(0, 4);
+
+  const total = vacs.length + cands.length + tareas.length;
+  if (!total) {
+    box.innerHTML = `<div class="gsearch-empty">Sin resultados para "<strong>${esc(q)}</strong>"</div>`;
+    box.classList.add('show'); return;
+  }
+
+  let html = '';
+  if (vacs.length) {
+    html += `<div class="gsearch-section"><div class="gsearch-section-label">📋 Vacantes</div>` +
+      vacs.map(v => `<div class="gsearch-item" onclick="goToVacante(${v.id})">
+        <span class="gsearch-item-icon">📋</span>
+        <div><div class="gsearch-item-main">${highlight(v.pos, q)}</div>
+        <div class="gsearch-item-sub">${esc(v.status)} · ${esc(v.hm||'Sin HM')}</div></div>
+      </div>`).join('') + `</div>`;
+  }
+  if (cands.length) {
+    html += `<div class="gsearch-section"><div class="gsearch-section-label">👤 Candidatos</div>` +
+      cands.map(c => {
+        const vac = DB.vacantes.find(v => v.id === c.vacId);
+        return `<div class="gsearch-item" onclick="goToCandidato(${c.id})">
+          <span class="gsearch-item-icon">👤</span>
+          <div><div class="gsearch-item-main">${highlight(c.nombre, q)}</div>
+          <div class="gsearch-item-sub">${esc(c.etapa)} · ${esc(vac ? vac.pos : '—')}</div></div>
+        </div>`;
+      }).join('') + `</div>`;
+  }
+  if (tareas.length) {
+    html += `<div class="gsearch-section"><div class="gsearch-section-label">✅ Tareas</div>` +
+      tareas.map(t => `<div class="gsearch-item" onclick="goToTarea()">
+        <span class="gsearch-item-icon">✅</span>
+        <div><div class="gsearch-item-main">${highlight(t.texto, q)}</div>
+        <div class="gsearch-item-sub">${esc(t.prioridad)} · ${t.done ? 'Completada' : 'Pendiente'}</div></div>
+      </div>`).join('') + `</div>`;
+  }
+  box.innerHTML = html;
+  box.classList.add('show');
+}
+
+function showGlobalResults() {
+  const q = document.getElementById('globalSearch').value;
+  if (q.trim()) runGlobalSearch(q);
+}
+
+function goToVacante(id) {
+  closeGlobalSearch();
+  switchTab('vacantes');
+  const v = DB.vacantes.find(x => x.id === id);
+  if (v) { document.getElementById('searchVac').value = v.pos; renderVacantes(); }
+}
+
+function goToCandidato(id) {
+  closeGlobalSearch();
+  switchTab('candidatos');
+  const c = DB.candidatos.find(x => x.id === id);
+  if (c) { document.getElementById('searchCand').value = c.nombre; renderCandidatos(); }
+}
+
+function goToTarea() {
+  closeGlobalSearch();
+  switchTab('tareas');
+}
+
+function closeGlobalSearch() {
+  document.getElementById('globalSearch').value = '';
+  const box = document.getElementById('gsearchResults');
+  box.classList.remove('show'); box.innerHTML = '';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.gsearch-wrap')) {
+    document.getElementById('gsearchResults').classList.remove('show');
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeGlobalSearch();
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    document.getElementById('globalSearch').focus();
+  }
+});
+
+// ── Scratchpad ────────────────────────────────────────────
+const SCRATCH_KEY = 'mari_scratchpad';
+
+function toggleScratchpad() {
+  const panel = document.getElementById('scratchpadPanel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) {
+    const saved = localStorage.getItem(SCRATCH_KEY) || '';
+    document.getElementById('scratchpadText').value = saved;
+    updateScratchCount(saved);
+    document.getElementById('scratchpadText').focus();
+  }
+}
+
+function saveScratchpad() {
+  const val = document.getElementById('scratchpadText').value;
+  localStorage.setItem(SCRATCH_KEY, val);
+  updateScratchCount(val);
+}
+
+function updateScratchCount(val) {
+  const el = document.getElementById('scratchpadCount');
+  if (el) el.textContent = val.length + ' caracteres · guardado automáticamente';
+}
+
+function clearScratchpad() {
+  if (!confirm('¿Limpiar el bloc de notas?')) return;
+  document.getElementById('scratchpadText').value = '';
+  localStorage.removeItem(SCRATCH_KEY);
+  updateScratchCount('');
+}
 
 // ── Color picker vacantes ─────────────────────────────────
 function toggleColorPicker(e, id) {
