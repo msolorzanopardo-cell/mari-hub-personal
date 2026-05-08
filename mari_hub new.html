@@ -167,7 +167,53 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-/* Color picker vacantes */
+/* Tooltip kanban */
+.kanban-card { position: relative; }
+.kcard-tooltip {
+  display: none;
+  position: absolute;
+  left: 105%; top: 0;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  width: 220px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+  z-index: 600;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.kanban-card:hover .kcard-tooltip { display: block; }
+.kcard-tooltip-row { margin-bottom: 5px; }
+.kcard-tooltip-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .4px; display: block; }
+.kcard-tooltip-val { color: var(--text); font-size: 12px; }
+
+/* Days in stage badge */
+.days-badge { font-size: 9px; font-family: 'DM Mono', monospace; padding: 1px 5px; border-radius: 10px; margin-top: 5px; display: inline-block; }
+.days-ok  { background: var(--green-bg);  color: var(--green); }
+.days-warn { background: var(--amber-bg); color: var(--amber); }
+.days-hot  { background: var(--red-bg);   color: var(--red); }
+
+/* Aging alert banner */
+.aging-alert-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.aging-alert-chip {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(220,38,38,0.07);
+  border: 1px solid rgba(220,38,38,0.25);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-size: 11px; color: var(--red);
+  cursor: pointer;
+  transition: background .15s;
+}
+.aging-alert-chip:hover { background: rgba(220,38,38,0.13); }
+.aging-alert-chip.warn {
+  background: rgba(180,83,9,0.07);
+  border-color: rgba(180,83,9,0.25);
+  color: var(--amber);
+}
+.aging-alert-chip.warn:hover { background: rgba(180,83,9,0.13); }
 .color-picker-btn { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: inline-block; transition: transform .15s, border-color .15s; flex-shrink: 0; }
 .color-picker-btn:hover { transform: scale(1.2); }
 .color-picker-btn.selected { border-color: var(--text); }
@@ -224,6 +270,7 @@ tr.dragging { opacity: 0.4; }
       </select>
       <button class="btn-primary" onclick="openModal('vacante')">+ Nueva vacante</button>
     </div>
+    <div id="agingAlertBar" class="aging-alert-bar"></div>
     <div class="table-wrap">
       <table>
         <thead><tr>
@@ -662,7 +709,7 @@ function renderStats() {
     .join('');
   document.getElementById('pill-vacantes').textContent = vac.length;
   document.getElementById('pill-candidatos').textContent = cand.length;
-  document.getElementById('pill-procesos').textContent = DB.procesos.length;
+  // pill-procesos removed
   document.getElementById('pill-tareas').textContent = tareas.filter(t => !t.done).length;
   document.getElementById('pill-entrevistas').textContent = (DB.entrevistas||[]).length;
 }
@@ -824,6 +871,7 @@ function renderVacantes() {
 
   tbody.innerHTML = rows;
   renderStats();
+  renderAgingAlerts();
 }
 
 function changeVacStatus(id, val) {
@@ -904,7 +952,10 @@ function changeCandStatus(id, val) {
     if (val === 'Contratado' && !c.fechaOferta) {
       c.fechaOferta = new Date().toISOString().slice(0,10);
     }
-    save(); renderCandidatos();
+    save();
+    renderCandidatos();
+    renderProcesos();
+    renderStats();
   }
 }
 
@@ -918,22 +969,43 @@ function populateProcVacFilter() {
     DB.vacantes.map(v => `<option value="${v.id}"${String(v.id)===cur?' selected':''}>${esc(v.pos)}</option>`).join('');
 }
 
+function calcDaysInStage(c) {
+  // Use fechaProxima as a proxy for last stage change, fallback to openDate of vacante
+  const ref = c.etapaFecha || c.fechaSubmittal || c.fechaProxima || '';
+  if (!ref) return null;
+  return calcAging(ref);
+}
+
+function daysBadge(d) {
+  if (d === null) return '';
+  const cls = d > 14 ? 'days-hot' : d > 7 ? 'days-warn' : 'days-ok';
+  return `<span class="days-badge ${cls}">⏱ ${d}d en etapa</span>`;
+}
+
 function renderProcesos() {
   const vf = document.getElementById('filterProcVac').value;
   let cands = DB.candidatos.filter(c => {
     if (vf && String(c.vacId) !== vf) return false;
-    return c.etapa !== 'Descartado';
+    return true;
   });
   const kanban = document.getElementById('kanbanProcesos');
   kanban.innerHTML = ETAPAS_KANBAN.map(etapa => {
     const cols = cands.filter(c => c.etapa === etapa);
     const cards = cols.map(c => {
       const vac = DB.vacantes.find(v => v.id === c.vacId);
+      const dias = calcDaysInStage(c);
+      const tooltipRows = [
+        c.fuente     ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fuente</span><span class="kcard-tooltip-val">${esc(c.fuente)}</span></div>` : '',
+        c.proxAccion ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Próxima acción</span><span class="kcard-tooltip-val">${esc(c.proxAccion)}</span></div>` : '',
+        c.fechaProxima ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fecha acción</span><span class="kcard-tooltip-val">${fmtDate(c.fechaProxima)}</span></div>` : '',
+        c.salEsperado ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Expectativa salarial</span><span class="kcard-tooltip-val">${esc(c.salEsperado)}</span></div>` : '',
+        c.notas       ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Notas</span><span class="kcard-tooltip-val">${esc(c.notas)}</span></div>` : '',
+      ].filter(Boolean).join('') || `<span style="color:var(--text3);font-size:11px;">Sin información adicional</span>`;
       return `<div class="kanban-card" data-id="${c.id}" onclick="editCandidato(parseInt(this.dataset.id))">
         <div class="kanban-card-name">${esc(c.nombre)}</div>
         <div class="kanban-card-sub">${esc(vac ? vac.pos : '—')}</div>
-        ${c.fechaProxima ? `<div class="kanban-card-date">📅 ${fmtDate(c.fechaProxima)}</div>` : ''}
-        ${c.proxAccion ? `<div class="kanban-card-date" style="color:var(--accent);">→ ${esc(c.proxAccion)}</div>` : ''}
+        ${daysBadge(dias)}
+        <div class="kcard-tooltip">${tooltipRows}</div>
       </div>`;
     }).join('') || `<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px 0;">Sin candidatos</div>`;
     return `<div class="kanban-col">
@@ -942,6 +1014,26 @@ function renderProcesos() {
         <span class="kanban-col-count">${cols.length}</span>
       </div>
       ${cards}
+    </div>`;
+  }).join('');
+}
+
+// ── Aging Alerts ──────────────────────────────────────────
+function renderAgingAlerts() {
+  const bar = document.getElementById('agingAlertBar');
+  if (!bar) return;
+  const alerts = DB.vacantes
+    .filter(v => v.status === 'OPEN' || v.status === 'FORECAST')
+    .map(v => ({ v, ag: calcAging(v.openDate) }))
+    .filter(({ ag }) => ag > 30)
+    .sort((a, b) => b.ag - a.ag);
+
+  if (!alerts.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = alerts.map(({ v, ag }) => {
+    const cls = ag > 60 ? '' : 'warn';
+    const icon = ag > 60 ? '🔴' : '🟡';
+    return `<div class="aging-alert-chip ${cls}" onclick="document.getElementById('searchVac').value='${esc(v.pos)}';renderVacantes();" title="Click para filtrar esta vacante">
+      ${icon} <strong>${esc(v.pos)}</strong> — ${ag} días sin cerrar
     </div>`;
   }).join('');
 }
@@ -1937,7 +2029,7 @@ function vacDragEnd(e) {
 
 // ── Init ──────────────────────────────────────────────────
 function renderAll() {
-  renderVacantes();
+  renderVacantes(); // already calls renderAgingAlerts
   renderStats();
   populateCandVacFilter();
   populateProcVacFilter();
