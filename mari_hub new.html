@@ -167,7 +167,12 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-/* Drag & Drop */
+/* Color picker vacantes */
+.color-picker-btn { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: inline-block; transition: transform .15s, border-color .15s; flex-shrink: 0; }
+.color-picker-btn:hover { transform: scale(1.2); }
+.color-picker-btn.selected { border-color: var(--text); }
+.color-picker-pop { position: absolute; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 8px; display: flex; gap: 6px; flex-wrap: wrap; width: 164px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 500; }
+.color-picker-wrap { position: relative; display: inline-block; }
 .drag-handle { cursor: grab; color: var(--text3); font-size: 13px; padding: 0 4px; user-select: none; line-height: 1; }
 .drag-handle:hover { color: var(--accent); }
 .drag-handle:active { cursor: grabbing; }
@@ -717,11 +722,12 @@ function renderVacantes() {
   data.forEach(v => {
     const ag = aging(v);
     const rc = STATUS_COLORS_VAC[v.status] || '';
+    const rowStyle = v.color ? `background-color:${v.color} !important;` : '';
     const candCount = DB.candidatos.filter(c => c.vacId === v.id && c.etapa !== 'Descartado').length;
     const expanded = _vacExpanded.has(v.id);
     const editing  = _vacEditing.has(v.id);
 
-    rows += `<tr class="${rc}" draggable="true" data-vacid="${v.id}" ondragstart="vacDragStart(event,${v.id})" ondragover="vacDragOver(event)" ondragleave="vacDragLeave(event)" ondrop="vacDrop(event,${v.id})" ondragend="vacDragEnd(event)">
+    rows += `<tr class="${v.color ? '' : rc}" style="${rowStyle}" draggable="true" data-vacid="${v.id}" ondragstart="vacDragStart(event,${v.id})" ondragover="vacDragOver(event)" ondragleave="vacDragLeave(event)" ondrop="vacDrop(event,${v.id})" ondragend="vacDragEnd(event)">
       <td style="width:28px;text-align:center;"><span class="drag-handle" title="Arrastrar para reordenar">⠿</span></td>
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
@@ -742,7 +748,16 @@ function renderVacantes() {
       <td style="text-align:center;font-family:'DM Mono',monospace;">${v.hc||'—'}</td>
       <td style="font-size:11px;">${esc(v.vert||'—')}</td>
       <td style="font-size:11px;">${esc(v.sal||'—')}</td>
-      <td style="white-space:nowrap;display:flex;gap:4px;">
+      <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;">
+        <div class="color-picker-wrap">
+          <button title="Color de fila" onclick="toggleColorPicker(event,${v.id})" style="width:20px;height:20px;border-radius:50%;border:2px solid var(--border2);background:${v.color||'var(--surface2)'};cursor:pointer;flex-shrink:0;" ></button>
+          <div class="color-picker-pop" id="cpop-${v.id}" style="display:none;position:absolute;top:26px;right:0;">
+            ${['','#fef08a','#fed7aa','#fca5a5','#86efac','#93c5fd','#d8b4fe','#f9a8d4','#e2e8f0'].map(c => 
+              `<span class="color-picker-btn${v.color===c?' selected':''}" style="background:${c||'#e2e8f0'};" title="${c?'Color':'Sin color'}" data-id="${v.id}" data-color="${c}" onclick="setVacColor(parseInt(this.dataset.id),this.dataset.color)"></span>`
+            ).join('')}
+            <span style="font-size:9px;color:var(--text3);width:100%;text-align:center;margin-top:2px;">sin color</span>
+          </div>
+        </div>
         <button class="btn-secondary" style="font-size:11px;padding:2px 8px;" data-id="${v.id}" onclick="editVacante(parseInt(this.dataset.id))">✏️</button>
         <button class="btn-danger" data-col="vacantes" data-id="${v.id}" onclick="deleteItem(this.dataset.col, parseInt(this.dataset.id))">✕</button>
       </td>
@@ -1851,6 +1866,30 @@ function saveMeta() {
   save(); closeModal(); renderMetas();
 }
 
+
+// ── Color picker vacantes ─────────────────────────────────
+function toggleColorPicker(e, id) {
+  e.stopPropagation();
+  // Close all other pickers first
+  document.querySelectorAll('.color-picker-pop').forEach(p => {
+    if (p.id !== 'cpop-'+id) p.style.display = 'none';
+  });
+  const pop = document.getElementById('cpop-'+id);
+  if (pop) pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
+}
+
+function setVacColor(id, color) {
+  const v = DB.vacantes.find(x => x.id === id);
+  if (!v) return;
+  v.color = color || '';
+  save();
+  renderVacantes();
+}
+
+// Close pickers when clicking outside
+document.addEventListener('click', () => {
+  document.querySelectorAll('.color-picker-pop').forEach(p => p.style.display = 'none');
+});
 
 // ── Drag & Drop Vacantes ──────────────────────────────────
 let _dragVacId = null;
