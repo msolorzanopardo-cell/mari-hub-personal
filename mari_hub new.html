@@ -598,7 +598,9 @@ mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; p
 // ── Storage ────────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2qdbUAvDI90nBcAXWs3n2jUl-tetwnHqrqKDNu4Ayx2QNKxPmjec56WcboLpM5Rry/exec';
 const STORAGE_KEY = 'mari_hub_v1';
-let _lastUpdatedAt = 0;
+const LOCAL_TS_KEY = 'mari_hub_local_ts';
+let _lastSavedToSheets = 0;  // timestamp del último guardado EXITOSO a Sheets
+let _pendingChanges = false;  // hay cambios locales que aún no llegaron a Sheets
 let _saveTimer = null;
 let _isSaving = false;
 
@@ -614,6 +616,11 @@ function loadLocal() {
 
 function saveLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+  localStorage.setItem(LOCAL_TS_KEY, String(Date.now()));
+}
+
+function getLocalTs() {
+  return Number(localStorage.getItem(LOCAL_TS_KEY) || 0);
 }
 
 function setSaveUI(state, label) {
@@ -630,7 +637,8 @@ function hhmm() {
 }
 
 function save() {
-  saveLocal(); // Always save locally first
+  _pendingChanges = true;
+  saveLocal(); // Siempre guardar local primero — inmediato
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(doSave, 1500);
   setSaveUI('saving', 'Guardando...');
@@ -639,32 +647,45 @@ function save() {
 async function doSave() {
   if (_isSaving) { clearTimeout(_saveTimer); _saveTimer = setTimeout(doSave, 1500); return; }
   _isSaving = true;
+  const saveTs = Date.now();
   try {
     const r = await fetch(SCRIPT_URL, {
       method: 'POST',
-      body: JSON.stringify({ action: 'write', data: { ...DB, ts: Date.now() } })
+      body: JSON.stringify({ action: 'write', data: { ...DB, ts: saveTs } })
     });
     const j = await r.json();
     if (j.ok) {
-      _lastUpdatedAt = Date.now();
+      _lastSavedToSheets = saveTs;
+      _pendingChanges = false;
       setSaveUI('ok', 'Guardado ' + hhmm());
     } else {
-      setSaveUI('err', 'Error al guardar');
+      setSaveUI('err', 'Error al guardar ⚠️');
     }
   } catch(e) {
-    setSaveUI('err', 'Sin conexión — guardado local');
+    setSaveUI('err', 'Sin conexión — guardado local ⚠️');
   }
   _isSaving = false;
 }
 
 async function doLoad() {
+  // ── PROTECCIÓN CLAVE: si hay cambios pendientes o un guardado reciente,
+  // NO sobreescribir con datos de Sheets — esperar a que el save termine
+  if (_pendingChanges || _saveTimer) {
+    setSaveUI('saving', 'Guardando...');
+    return;
+  }
+
+  // Comparar timestamps: si local es más nuevo que Sheets, subir en lugar de bajar
+  const localTs = getLocalTs();
+
   setSaveUI('saving', 'Sincronizando...');
   try {
     const r = await fetch(SCRIPT_URL + '?action=read');
     const j = await r.json();
     if (!j.ok) { setSaveUI('err', 'Error al leer'); return; }
+
     if (!j.data || !j.data.vacantes) {
-      // Sheet empty — push local data up
+      // Sheets vacío — subir datos locales
       if (DB.vacantes.length > 0 || DB.candidatos.length > 0 || DB.tareas.length > 0) {
         await doSave();
       } else {
@@ -672,10 +693,19 @@ async function doLoad() {
       }
       return;
     }
-    // Only update if sheet has newer data
-    if (j.updatedAt > _lastUpdatedAt) {
+
+    const sheetsTs = Number(j.updatedAt) || Number(j.data.ts) || 0;
+
+    if (localTs > sheetsTs) {
+      // Local es más nuevo — subir a Sheets en lugar de pisar datos
+      await doSave();
+    } else if (sheetsTs > _lastSavedToSheets) {
+      // Sheets tiene datos más nuevos que lo que guardamos — cargar
       DB = j.data;
-      _lastUpdatedAt = j.updatedAt;
+      if (!DB.entrevistas) DB.entrevistas = [];
+      if (!DB.submittals) DB.submittals = [];
+      if (!DB.metas) DB.metas = [];
+      _lastSavedToSheets = sheetsTs;
       saveLocal();
       renderAll();
       setSaveUI('ok', 'Actualizado ' + hhmm());
@@ -687,7 +717,10 @@ async function doLoad() {
   }
 }
 
-async function syncNow() { await doLoad(); }
+async function syncNow() {
+  _pendingChanges = false; // forzar sync manual
+  await doLoad();
+}
 
 function nextId() { return DB.nextId++; }
 
