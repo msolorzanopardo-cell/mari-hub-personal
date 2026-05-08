@@ -96,14 +96,14 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 .b-pending { background: var(--amber-bg); color: var(--amber); }
 
 /* Status colors per row */
-.row-open { background: rgba(22,163,74,0.07) !important; }
-.row-filled { background: rgba(29,78,216,0.07) !important; }
-.row-hold { background: rgba(180,83,9,0.07) !important; }
-.row-cancelled { background: rgba(220,38,38,0.07) !important; }
-.row-forecast { background: rgba(124,58,237,0.07) !important; }
-.row-done { background: rgba(22,163,74,0.07) !important; }
-.row-alta { background: rgba(220,38,38,0.05) !important; }
-.row-media { background: rgba(180,83,9,0.05) !important; }
+.row-open { background: rgba(22,163,74,0.04) !important; }
+.row-filled { background: rgba(29,78,216,0.04) !important; }
+.row-hold { background: rgba(180,83,9,0.04) !important; }
+.row-cancelled { background: rgba(220,38,38,0.04) !important; }
+.row-forecast { background: rgba(124,58,237,0.04) !important; }
+.row-done { background: rgba(22,163,74,0.04) !important; }
+.row-alta { background: rgba(220,38,38,0.03) !important; }
+.row-media { background: rgba(180,83,9,0.03) !important; }
 
 /* Inline edit */
 .editable { cursor: pointer; border-radius: 3px; padding: 1px 3px; }
@@ -196,24 +196,6 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 .days-hot  { background: var(--red-bg);   color: var(--red); }
 
 /* Aging alert banner */
-.aging-alert-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-.aging-alert-chip {
-  display: flex; align-items: center; gap: 7px;
-  background: rgba(220,38,38,0.07);
-  border: 1px solid rgba(220,38,38,0.25);
-  border-radius: var(--radius-sm);
-  padding: 5px 11px;
-  font-size: 11px; color: var(--red);
-  cursor: pointer;
-  transition: background .15s;
-}
-.aging-alert-chip:hover { background: rgba(220,38,38,0.13); }
-.aging-alert-chip.warn {
-  background: rgba(180,83,9,0.07);
-  border-color: rgba(180,83,9,0.25);
-  color: var(--amber);
-}
-.aging-alert-chip.warn:hover { background: rgba(180,83,9,0.13); }
 .color-picker-btn { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: inline-block; transition: transform .15s, border-color .15s; flex-shrink: 0; }
 .color-picker-btn:hover { transform: scale(1.2); }
 .color-picker-btn.selected { border-color: var(--text); }
@@ -305,7 +287,6 @@ mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; p
       </select>
       <button class="btn-primary" onclick="openModal('vacante')">+ Nueva vacante</button>
     </div>
-    <div id="agingAlertBar" class="aging-alert-bar"></div>
     <div class="table-wrap">
       <table>
         <thead><tr>
@@ -848,7 +829,7 @@ function renderVacantes() {
         <div class="color-picker-wrap">
           <button title="Color de fila" onclick="toggleColorPicker(event,${v.id})" style="width:20px;height:20px;border-radius:50%;border:2px solid var(--border2);background:${v.color||'var(--surface2)'};cursor:pointer;flex-shrink:0;" ></button>
           <div class="color-picker-pop" id="cpop-${v.id}" style="display:none;position:absolute;top:26px;right:0;">
-            ${['','#fef08a','#fed7aa','#fca5a5','#86efac','#93c5fd','#d8b4fe','#f9a8d4','#e2e8f0'].map(c => 
+            ${['','#fefce8','#fff7ed','#fef2f2','#f0fdf4','#eff6ff','#faf5ff','#fdf4ff','#f8fafc'].map(c => 
               `<span class="color-picker-btn${v.color===c?' selected':''}" style="background:${c||'#e2e8f0'};" title="${c?'Color':'Sin color'}" data-id="${v.id}" data-color="${c}" onclick="setVacColor(parseInt(this.dataset.id),this.dataset.color)"></span>`
             ).join('')}
             <span style="font-size:9px;color:var(--text3);width:100%;text-align:center;margin-top:2px;">sin color</span>
@@ -920,7 +901,6 @@ function renderVacantes() {
 
   tbody.innerHTML = rows;
   renderStats();
-  renderAgingAlerts();
 }
 
 function changeVacStatus(id, val) {
