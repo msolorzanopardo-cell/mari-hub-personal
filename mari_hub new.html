@@ -166,6 +166,13 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* Drag & Drop */
+.drag-handle { cursor: grab; color: var(--text3); font-size: 13px; padding: 0 4px; user-select: none; line-height: 1; }
+.drag-handle:hover { color: var(--accent); }
+.drag-handle:active { cursor: grabbing; }
+tr.drag-over > td { border-top: 2px solid var(--accent) !important; }
+tr.dragging { opacity: 0.4; }
 </style>
 </head>
 <body>
@@ -192,7 +199,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
   <div class="tab-row">
     <button class="tab active" id="tab-vacantes" onclick="switchTab('vacantes')">📋 Vacantes <span class="tab-pill" id="pill-vacantes">0</span></button>
     <button class="tab" id="tab-candidatos" onclick="switchTab('candidatos')">👤 Candidatos <span class="tab-pill" id="pill-candidatos">0</span></button>
-    <button class="tab" id="tab-procesos" onclick="switchTab('procesos')">🔄 Procesos <span class="tab-pill" id="pill-procesos">0</span></button>
+    <button class="tab" id="tab-procesos" onclick="switchTab('procesos')">🔄 Procesos</button>
     <button class="tab" id="tab-entrevistas" onclick="switchTab('entrevistas')">📝 Entrevistas <span class="tab-pill" id="pill-entrevistas">0</span></button>
     <button class="tab" id="tab-metricas" onclick="switchTab('metricas')">📊 Métricas</button>
     <button class="tab" id="tab-tareas" onclick="switchTab('tareas')">✅ Tareas <span class="tab-pill" id="pill-tareas">0</span></button>
@@ -215,6 +222,7 @@ tbody td { padding: 8px 10px; vertical-align: middle; }
     <div class="table-wrap">
       <table>
         <thead><tr>
+          <th style="width:28px"></th>
           <th style="width:200px">Posición</th>
           <th style="width:100px">Estado</th>
           <th style="width:90px">Tipo</th>
@@ -702,7 +710,7 @@ function renderVacantes() {
     return true;
   });
   const tbody = document.getElementById('tbodyVacantes');
-  if (!data.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">No hay vacantes — agrega una con el botón +</td></tr>`; return; }
+  if (!data.length) { tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">No hay vacantes — agrega una con el botón +</td></tr>`; return; }
   const aging = v => calcAging(v.openDate);
 
   let rows = '';
@@ -713,7 +721,8 @@ function renderVacantes() {
     const expanded = _vacExpanded.has(v.id);
     const editing  = _vacEditing.has(v.id);
 
-    rows += `<tr class="${rc}">
+    rows += `<tr class="${rc}" draggable="true" data-vacid="${v.id}" ondragstart="vacDragStart(event,${v.id})" ondragover="vacDragOver(event)" ondragleave="vacDragLeave(event)" ondrop="vacDrop(event,${v.id})" ondragend="vacDragEnd(event)">
+      <td style="width:28px;text-align:center;"><span class="drag-handle" title="Arrastrar para reordenar">⠿</span></td>
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
           <button data-id="${v.id}" onclick="toggleVacDrawer(parseInt(this.dataset.id))" style="font-size:11px;padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:transparent;cursor:pointer;color:var(--text2);">${expanded?'▲':'▼'}</button>
@@ -742,7 +751,7 @@ function renderVacantes() {
     if (expanded) {
       if (editing) {
         // Edit mode drawer
-        rows += `<tr><td colspan="9" style="padding:0;">
+        rows += `<tr><td colspan="10" style="padding:0;">
           <div class="vac-drawer">
             <div class="drawer-field">
               <label>Remuneración</label>
@@ -776,7 +785,7 @@ function renderVacantes() {
           <label>${label}</label>
           <div class="view-val${val?'':' empty'}">${val ? esc(val) : 'Sin información'}</div>
         </div>`;
-        rows += `<tr><td colspan="9" style="padding:0;">
+        rows += `<tr><td colspan="10" style="padding:0;">
           <div class="vac-drawer">
             ${field('Remuneración', v.sal)}
             ${field('Ubicación', v.loc)}
@@ -885,7 +894,7 @@ function changeCandStatus(id, val) {
 }
 
 // ── PROCESOS ──────────────────────────────────────────────
-const ETAPAS_KANBAN = ['Aplicado', 'Submittal Sent', 'Entrevista', 'Entrevista HM', 'Contratado'];
+const ETAPAS_KANBAN = ['Entrevista', 'Submittal Sent', 'Entrevista HM', 'Contratado', 'Descartado'];
 
 function populateProcVacFilter() {
   const sel = document.getElementById('filterProcVac');
@@ -1842,6 +1851,50 @@ function saveMeta() {
   save(); closeModal(); renderMetas();
 }
 
+
+// ── Drag & Drop Vacantes ──────────────────────────────────
+let _dragVacId = null;
+
+function vacDragStart(e, id) {
+  _dragVacId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('dragging');
+}
+
+function vacDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const row = e.currentTarget;
+  if (parseInt(row.dataset.vacid) !== _dragVacId) {
+    // Remove drag-over from all rows first
+    document.querySelectorAll('#tbodyVacantes tr').forEach(r => r.classList.remove('drag-over'));
+    row.classList.add('drag-over');
+  }
+}
+
+function vacDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+function vacDrop(e, targetId) {
+  e.preventDefault();
+  if (_dragVacId === null || _dragVacId === targetId) return;
+  const fromIdx = DB.vacantes.findIndex(v => v.id === _dragVacId);
+  const toIdx   = DB.vacantes.findIndex(v => v.id === targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [moved] = DB.vacantes.splice(fromIdx, 1);
+  DB.vacantes.splice(toIdx, 0, moved);
+  save();
+  renderVacantes();
+}
+
+function vacDragEnd(e) {
+  _dragVacId = null;
+  document.querySelectorAll('#tbodyVacantes tr').forEach(r => {
+    r.classList.remove('drag-over');
+    r.classList.remove('dragging');
+  });
+}
 
 // ── Init ──────────────────────────────────────────────────
 function renderAll() {
