@@ -177,18 +177,19 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* Tooltip kanban */
-.kanban-card { position: relative; }
+.kanban { position: relative; }
+.kanban-col { overflow: visible !important; }
+.kanban-card { position: relative; isolation: isolate; }
 .kcard-tooltip {
   display: none;
-  position: absolute;
-  left: 105%; top: 0;
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--border2);
   border-radius: var(--radius);
   padding: 10px 13px;
-  width: 220px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
-  z-index: 600;
+  width: 230px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  z-index: 9999;
   font-size: 11px;
   line-height: 1.5;
   pointer-events: none;
@@ -197,6 +198,11 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 .kcard-tooltip-row { margin-bottom: 5px; }
 .kcard-tooltip-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .4px; display: block; }
 .kcard-tooltip-val { color: var(--text); font-size: 12px; }
+/* HIRE badge colors */
+.hire-confirmado { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; }
+.hire-pendiente  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; }
+.kanban-card.hire-card-confirmado { border-left: 3px solid #10b981 !important; }
+.kanban-card.hire-card-pendiente  { border-left: 3px solid #f59e0b !important; }
 
 /* Days in stage badge */
 .days-badge { font-size: 9px; font-family: 'DM Mono', monospace; padding: 1px 5px; border-radius: 10px; margin-top: 5px; display: inline-block; }
@@ -599,32 +605,44 @@ mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; p
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2qdbUAvDI90nBcAXWs3n2jUl-tetwnHqrqKDNu4Ayx2QNKxPmjec56WcboLpM5Rry/exec';
 const STORAGE_KEY = 'mari_hub_v1';
 
-// ── Estado de guardado ────────────────────────────────────
-let _saveTimer = null;
-let _isSaving = false;
-let _saveQueue = false; // si llega un save mientras guardamos, lo reintenta
+// ── Estado ────────────────────────────────────────────────
+let _syncTimer = null;   // timer para sync a Sheets en background
+let _isSyncing = false;  // está subiendo a Sheets ahora mismo
 
-// ── DB en memoria: siempre se carga desde Sheets al abrir ─
-let DB = emptyDB();
+// ── DB: se carga desde localStorage al instante ───────────
+let DB = loadLocal();
 
 function emptyDB() {
   return { vacantes: [], candidatos: [], procesos: [], tareas: [], entrevistas: [], submittals: [], metas: [], nextId: 1 };
 }
 
-// ── localStorage solo como CACHÉ de emergencia ────────────
-function cacheLocal() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ db: DB, ts: Date.now() })); } catch(e) {}
-}
-
-function loadCache() {
+// ── localStorage: fuente de verdad principal ──────────────
+function loadLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    // Solo usar caché si tiene menos de 5 minutos
-    if (Date.now() - (obj.ts || 0) < 5 * 60 * 1000) return obj.db;
+    if (raw) {
+      const obj = JSON.parse(raw);
+      // Formato nuevo { db, ts } o formato viejo directo
+      const db = obj.db || obj;
+      if (db && db.vacantes) return db;
+    }
   } catch(e) {}
-  return null;
+  return emptyDB();
+}
+
+function saveLocal() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ db: DB, ts: Date.now() }));
+  } catch(e) {}
+}
+
+function getLocalTs() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return 0;
+    const obj = JSON.parse(raw);
+    return obj.ts || 0;
+  } catch(e) { return 0; }
 }
 
 function setSaveUI(state, label) {
@@ -640,116 +658,106 @@ function hhmm() {
   return new Date().toLocaleTimeString('es-CO', {hour:'2-digit', minute:'2-digit'});
 }
 
-// ── SAVE: guarda inmediatamente a Sheets, con reintentos ──
+// ── SAVE: instantáneo en localStorage + sync a Sheets ─────
 function save() {
-  cacheLocal(); // respaldo local inmediato
-  setSaveUI('saving', 'Guardando...');
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => _doSave(0), 300); // pequeño debounce para agrupar cambios rápidos
+  saveLocal();                          // ✅ guardado local INMEDIATO
+  setSaveUI('ok', 'Guardado ' + hhmm());
+  // Sync a Sheets en background, sin bloquear
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(_syncToSheets, 800);
 }
 
-async function _doSave(attempt) {
-  if (_isSaving) {
-    _saveQueue = true;
-    return;
-  }
-  _isSaving = true;
-  _saveQueue = false;
-  const payload = { ...DB, ts: Date.now() };
+// ── Sync a Sheets en background (no bloquea la UI) ────────
+async function _syncToSheets() {
+  if (_isSyncing) { clearTimeout(_syncTimer); _syncTimer = setTimeout(_syncToSheets, 2000); return; }
+  _isSyncing = true;
+  const payload = { ...DB, ts: getLocalTs() };
   try {
     const r = await fetch(SCRIPT_URL, {
       method: 'POST',
       body: JSON.stringify({ action: 'write', data: payload })
     });
     const j = await r.json();
-    if (j.ok) {
-      cacheLocal();
-      setSaveUI('ok', 'Guardado ' + hhmm());
+    if (!j.ok) throw new Error('Sheets error');
+    // Sync exitoso — no cambiar UI, el usuario ya vio "Guardado"
+  } catch(e) {
+    // Fallo silencioso — datos ya están en localStorage, se reintentará en el próximo save
+    console.warn('Sync a Sheets falló (datos seguros en local):', e.message);
+  }
+  _isSyncing = false;
+}
+
+// ── doSave público (compatibilidad) ──────────────────────
+async function doSave() { save(); }
+
+// ── LOAD: al abrir, prefiere localStorage si es reciente ──
+async function doLoad() {
+  const localTs = getLocalTs();
+  const localAge = Date.now() - localTs; // ms desde el último guardado local
+
+  // Si hay datos locales de menos de 30 minutos, usarlos y renderizar YA
+  if (DB.vacantes && DB.vacantes.length > 0 && localAge < 30 * 60 * 1000) {
+    renderAll();
+    setSaveUI('ok', 'Al día ' + hhmm());
+    // En background, verificar si Sheets tiene algo más nuevo
+    _checkSheetsInBackground(localTs);
+    return;
+  }
+
+  // Sin datos locales recientes → cargar desde Sheets
+  setSaveUI('saving', 'Cargando...');
+  try {
+    const r = await fetch(SCRIPT_URL + '?action=read&t=' + Date.now());
+    const j = await r.json();
+    if (!j.ok) throw new Error('Sheets error');
+    if (j.data && j.data.vacantes) {
+      DB = j.data;
+      _ensureArrays();
+      saveLocal();
+      renderAll();
+      setSaveUI('ok', 'Cargado ' + hhmm());
     } else {
-      throw new Error('Sheets respondió con error');
+      renderAll();
+      setSaveUI('ok', 'Hub listo');
     }
   } catch(e) {
-    if (attempt < 3) {
-      // Reintentar hasta 3 veces con backoff
-      const delay = [2000, 5000, 10000][attempt];
-      setSaveUI('saving', `Reintentando (${attempt+1}/3)...`);
-      _isSaving = false;
-      _saveTimer = setTimeout(() => _doSave(attempt + 1), delay);
-      return;
-    }
-    setSaveUI('err', '⚠️ No se pudo guardar — revisa conexión');
-    console.error('Error guardando en Sheets:', e);
-  }
-  _isSaving = false;
-  if (_saveQueue) {
-    _saveQueue = false;
-    _saveTimer = setTimeout(() => _doSave(0), 300);
+    // Sin conexión — usar lo que hay en localStorage
+    renderAll();
+    setSaveUI('err', '⚠️ Sin conexión — datos locales');
   }
 }
 
-// ── doSave público (para compatibilidad) ──────────────────
-async function doSave() { await _doSave(0); }
-
-// ── LOAD: carga desde Sheets al iniciar. Si falla, usa caché ──
-async function doLoad() {
-  // Si hay un guardado en curso, no cargar (podría pisar datos)
-  if (_isSaving || _saveTimer) return;
-
-  setSaveUI('saving', 'Cargando...');
+// ── Verifica Sheets en background sin bloquear ────────────
+async function _checkSheetsInBackground(localTs) {
   try {
-    const r = await fetch(SCRIPT_URL + '?action=read&t=' + Date.now()); // cache-bust
+    const r = await fetch(SCRIPT_URL + '?action=read&t=' + Date.now());
     const j = await r.json();
-    if (!j.ok) throw new Error('Sheets error');
-
-    if (j.data && j.data.vacantes) {
+    if (!j.ok) return;
+    const sheetsTs = Number(j.updatedAt) || Number(j.data && j.data.ts) || 0;
+    if (sheetsTs > localTs && j.data && j.data.vacantes) {
+      // Sheets tiene algo más nuevo (cambio desde otro dispositivo)
       DB = j.data;
-      if (!DB.entrevistas) DB.entrevistas = [];
-      if (!DB.submittals)  DB.submittals  = [];
-      if (!DB.metas)       DB.metas       = [];
-      if (!DB.procesos)    DB.procesos    = [];
-      if (!DB.nextId)      DB.nextId      = 1;
-      cacheLocal();
+      _ensureArrays();
+      saveLocal();
       renderAll();
-      setSaveUI('ok', 'Al día ' + hhmm());
-    } else {
-      // Sheets vacío — intentar recuperar desde caché
-      const cached = loadCache();
-      if (cached) {
-        DB = cached;
-        if (!DB.entrevistas) DB.entrevistas = [];
-        if (!DB.submittals)  DB.submittals  = [];
-        if (!DB.metas)       DB.metas       = [];
-        if (!DB.procesos)    DB.procesos    = [];
-        renderAll();
-        setSaveUI('saving', 'Recuperando caché...');
-        // Subir caché a Sheets
-        await _doSave(0);
-      } else {
-        setSaveUI('ok', 'Hub listo');
-      }
+      setSaveUI('ok', 'Sincronizado ' + hhmm());
+    } else if (localTs > sheetsTs && DB.vacantes.length > 0) {
+      // Local es más nuevo → subir a Sheets
+      _syncToSheets();
     }
-  } catch(e) {
-    // Sin conexión: usar caché si existe
-    const cached = loadCache();
-    if (cached && cached.vacantes && cached.vacantes.length > 0) {
-      DB = cached;
-      if (!DB.entrevistas) DB.entrevistas = [];
-      if (!DB.submittals)  DB.submittals  = [];
-      if (!DB.metas)       DB.metas       = [];
-      if (!DB.procesos)    DB.procesos    = [];
-      renderAll();
-      setSaveUI('err', '⚠️ Sin conexión — mostrando caché local');
-    } else {
-      setSaveUI('err', '⚠️ Sin conexión a Sheets');
-    }
-  }
+  } catch(e) { /* sin conexión, no pasa nada */ }
+}
+
+function _ensureArrays() {
+  if (!DB.entrevistas) DB.entrevistas = [];
+  if (!DB.submittals)  DB.submittals  = [];
+  if (!DB.metas)       DB.metas       = [];
+  if (!DB.procesos)    DB.procesos    = [];
+  if (!DB.nextId)      DB.nextId      = 1;
 }
 
 async function syncNow() {
-  if (_isSaving || _saveTimer) {
-    setSaveUI('saving', 'Guardando cambios primero...');
-    return;
-  }
+  setSaveUI('saving', 'Sincronizando...');
   await doLoad();
 }
 
@@ -1064,7 +1072,31 @@ function changeCandStatus(id, val) {
 }
 
 // ── PROCESOS ──────────────────────────────────────────────
-const ETAPAS_KANBAN = ['Entrevista', 'Submittal Sent', 'Entrevista HM', 'Contratado', 'Descartado'];
+const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'HIRE', 'Descartado'];
+
+// Posición del tooltip usando mousemove para que siga al cursor
+document.addEventListener('mousemove', function(e) {
+  const tt = document.querySelector('.kanban-card:hover .kcard-tooltip');
+  if (!tt) return;
+  const margin = 14;
+  let left = e.clientX + margin;
+  let top  = e.clientY - 20;
+  // Si se sale por la derecha, mostrar a la izquierda
+  if (left + 240 > window.innerWidth) left = e.clientX - 240 - margin;
+  // Si se sale por abajo, subir
+  if (top + tt.offsetHeight > window.innerHeight) top = window.innerHeight - tt.offsetHeight - 10;
+  tt.style.left = left + 'px';
+  tt.style.top  = top  + 'px';
+});
+
+function toggleHireStatus(candId, e) {
+  e.stopPropagation();
+  const c = DB.candidatos.find(x => x.id === candId);
+  if (!c) return;
+  c.hireConfirmado = !c.hireConfirmado;
+  save();
+  renderProcesos();
+}
 
 function populateProcVacFilter() {
   const sel = document.getElementById('filterProcVac');
@@ -1092,29 +1124,64 @@ function renderProcesos() {
     if (vf && String(c.vacId) !== vf) return false;
     return true;
   });
+
+  // Mapear etapas del candidato a columnas kanban
+  function getKanbanCol(c) {
+    if (c.etapa === 'Descartado') return 'Descartado';
+    if (c.etapa === 'Contratado') return 'HIRE';
+    if (c.etapa === 'Entrevista HM') return 'Entrevista HM';
+    if (c.etapa === 'Submittal Sent') return 'Submittal Sent';
+    return null; // otros no aparecen en procesos
+  }
+
+  const COL_CONFIG = {
+    'Submittal Sent': { icon: '📤', color: 'var(--purple)' },
+    'Entrevista HM':  { icon: '🎙️', color: 'var(--blue)' },
+    'HIRE':           { icon: '🏆', color: 'var(--green)' },
+    'Descartado':     { icon: '❌', color: 'var(--red, #ef4444)' },
+  };
+
   const kanban = document.getElementById('kanbanProcesos');
   kanban.innerHTML = ETAPAS_KANBAN.map(etapa => {
-    const cols = cands.filter(c => c.etapa === etapa);
+    const cols = cands.filter(c => getKanbanCol(c) === etapa);
+    const cfg  = COL_CONFIG[etapa] || {};
+
     const cards = cols.map(c => {
-      const vac = DB.vacantes.find(v => v.id === c.vacId);
+      const vac  = DB.vacantes.find(v => v.id === c.vacId);
       const dias = calcDaysInStage(c);
       const tooltipRows = [
-        c.fuente     ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fuente</span><span class="kcard-tooltip-val">${esc(c.fuente)}</span></div>` : '',
-        c.proxAccion ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Próxima acción</span><span class="kcard-tooltip-val">${esc(c.proxAccion)}</span></div>` : '',
-        c.fechaProxima ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fecha acción</span><span class="kcard-tooltip-val">${fmtDate(c.fechaProxima)}</span></div>` : '',
+        c.fuente      ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fuente</span><span class="kcard-tooltip-val">${esc(c.fuente)}</span></div>` : '',
+        c.proxAccion  ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Próxima acción</span><span class="kcard-tooltip-val">${esc(c.proxAccion)}</span></div>` : '',
+        c.fechaProxima? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fecha acción</span><span class="kcard-tooltip-val">${fmtDate(c.fechaProxima)}</span></div>` : '',
         c.salEsperado ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Expectativa salarial</span><span class="kcard-tooltip-val">${esc(c.salEsperado)}</span></div>` : '',
         c.notas       ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Notas</span><span class="kcard-tooltip-val">${esc(c.notas)}</span></div>` : '',
       ].filter(Boolean).join('') || `<span style="color:var(--text3);font-size:11px;">Sin información adicional</span>`;
-      return `<div class="kanban-card" data-id="${c.id}" onclick="editCandidato(parseInt(this.dataset.id))">
+
+      // HIRE: mostrar badge de confirmado/pendiente con botón toggle
+      let hireBadge = '';
+      let hireCardClass = '';
+      if (etapa === 'HIRE') {
+        const confirmado = !!c.hireConfirmado;
+        hireCardClass = confirmado ? 'hire-card-confirmado' : 'hire-card-pendiente';
+        hireBadge = `<div style="margin-top:7px;">
+          <button onclick="toggleHireStatus(${c.id}, event)" class="${confirmado ? 'hire-confirmado' : 'hire-pendiente'}">
+            ${confirmado ? '✅ Confirmado' : '⏳ Por confirmar'}
+          </button>
+        </div>`;
+      }
+
+      return `<div class="kanban-card ${hireCardClass}" data-id="${c.id}" onclick="editCandidato(parseInt(this.dataset.id))">
         <div class="kanban-card-name">${esc(c.nombre)}</div>
         <div class="kanban-card-sub">${esc(vac ? vac.pos : '—')}</div>
         ${daysBadge(dias)}
+        ${hireBadge}
         <div class="kcard-tooltip">${tooltipRows}</div>
       </div>`;
     }).join('') || `<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px 0;">Sin candidatos</div>`;
+
     return `<div class="kanban-col">
-      <div class="kanban-col-header">
-        <span>${etapa}</span>
+      <div class="kanban-col-header" style="color:${cfg.color || 'var(--text2)'}">
+        <span>${cfg.icon || ''} ${etapa}</span>
         <span class="kanban-col-count">${cols.length}</span>
       </div>
       ${cards}
