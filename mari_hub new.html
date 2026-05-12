@@ -598,29 +598,33 @@ mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; p
 // ── Storage ────────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2qdbUAvDI90nBcAXWs3n2jUl-tetwnHqrqKDNu4Ayx2QNKxPmjec56WcboLpM5Rry/exec';
 const STORAGE_KEY = 'mari_hub_v1';
-const LOCAL_TS_KEY = 'mari_hub_local_ts';
-let _lastSavedToSheets = 0;  // timestamp del último guardado EXITOSO a Sheets
-let _pendingChanges = false;  // hay cambios locales que aún no llegaron a Sheets
+
+// ── Estado de guardado ────────────────────────────────────
 let _saveTimer = null;
 let _isSaving = false;
+let _saveQueue = false; // si llega un save mientras guardamos, lo reintenta
 
-let DB = loadLocal();
+// ── DB en memoria: siempre se carga desde Sheets al abrir ─
+let DB = emptyDB();
 
-function loadLocal() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch(e) {}
+function emptyDB() {
   return { vacantes: [], candidatos: [], procesos: [], tareas: [], entrevistas: [], submittals: [], metas: [], nextId: 1 };
 }
 
-function saveLocal() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-  localStorage.setItem(LOCAL_TS_KEY, String(Date.now()));
+// ── localStorage solo como CACHÉ de emergencia ────────────
+function cacheLocal() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ db: DB, ts: Date.now() })); } catch(e) {}
 }
 
-function getLocalTs() {
-  return Number(localStorage.getItem(LOCAL_TS_KEY) || 0);
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    // Solo usar caché si tiene menos de 5 minutos
+    if (Date.now() - (obj.ts || 0) < 5 * 60 * 1000) return obj.db;
+  } catch(e) {}
+  return null;
 }
 
 function setSaveUI(state, label) {
@@ -636,89 +640,116 @@ function hhmm() {
   return new Date().toLocaleTimeString('es-CO', {hour:'2-digit', minute:'2-digit'});
 }
 
+// ── SAVE: guarda inmediatamente a Sheets, con reintentos ──
 function save() {
-  _pendingChanges = true;
-  saveLocal(); // Siempre guardar local primero — inmediato
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(doSave, 1500);
+  cacheLocal(); // respaldo local inmediato
   setSaveUI('saving', 'Guardando...');
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => _doSave(0), 300); // pequeño debounce para agrupar cambios rápidos
 }
 
-async function doSave() {
-  if (_isSaving) { clearTimeout(_saveTimer); _saveTimer = setTimeout(doSave, 1500); return; }
+async function _doSave(attempt) {
+  if (_isSaving) {
+    _saveQueue = true;
+    return;
+  }
   _isSaving = true;
-  const saveTs = Date.now();
+  _saveQueue = false;
+  const payload = { ...DB, ts: Date.now() };
   try {
     const r = await fetch(SCRIPT_URL, {
       method: 'POST',
-      body: JSON.stringify({ action: 'write', data: { ...DB, ts: saveTs } })
+      body: JSON.stringify({ action: 'write', data: payload })
     });
     const j = await r.json();
     if (j.ok) {
-      _lastSavedToSheets = saveTs;
-      _pendingChanges = false;
+      cacheLocal();
       setSaveUI('ok', 'Guardado ' + hhmm());
     } else {
-      setSaveUI('err', 'Error al guardar ⚠️');
+      throw new Error('Sheets respondió con error');
     }
   } catch(e) {
-    setSaveUI('err', 'Sin conexión — guardado local ⚠️');
-  }
-  _isSaving = false;
-}
-
-async function doLoad() {
-  // ── PROTECCIÓN CLAVE: si hay cambios pendientes o un guardado reciente,
-  // NO sobreescribir con datos de Sheets — esperar a que el save termine
-  if (_pendingChanges || _saveTimer) {
-    setSaveUI('saving', 'Guardando...');
-    return;
-  }
-
-  // Comparar timestamps: si local es más nuevo que Sheets, subir en lugar de bajar
-  const localTs = getLocalTs();
-
-  setSaveUI('saving', 'Sincronizando...');
-  try {
-    const r = await fetch(SCRIPT_URL + '?action=read');
-    const j = await r.json();
-    if (!j.ok) { setSaveUI('err', 'Error al leer'); return; }
-
-    if (!j.data || !j.data.vacantes) {
-      // Sheets vacío — subir datos locales
-      if (DB.vacantes.length > 0 || DB.candidatos.length > 0 || DB.tareas.length > 0) {
-        await doSave();
-      } else {
-        setSaveUI('ok', 'Listo ' + hhmm());
-      }
+    if (attempt < 3) {
+      // Reintentar hasta 3 veces con backoff
+      const delay = [2000, 5000, 10000][attempt];
+      setSaveUI('saving', `Reintentando (${attempt+1}/3)...`);
+      _isSaving = false;
+      _saveTimer = setTimeout(() => _doSave(attempt + 1), delay);
       return;
     }
+    setSaveUI('err', '⚠️ No se pudo guardar — revisa conexión');
+    console.error('Error guardando en Sheets:', e);
+  }
+  _isSaving = false;
+  if (_saveQueue) {
+    _saveQueue = false;
+    _saveTimer = setTimeout(() => _doSave(0), 300);
+  }
+}
 
-    const sheetsTs = Number(j.updatedAt) || Number(j.data.ts) || 0;
+// ── doSave público (para compatibilidad) ──────────────────
+async function doSave() { await _doSave(0); }
 
-    if (localTs > sheetsTs) {
-      // Local es más nuevo — subir a Sheets en lugar de pisar datos
-      await doSave();
-    } else if (sheetsTs > _lastSavedToSheets) {
-      // Sheets tiene datos más nuevos que lo que guardamos — cargar
+// ── LOAD: carga desde Sheets al iniciar. Si falla, usa caché ──
+async function doLoad() {
+  // Si hay un guardado en curso, no cargar (podría pisar datos)
+  if (_isSaving || _saveTimer) return;
+
+  setSaveUI('saving', 'Cargando...');
+  try {
+    const r = await fetch(SCRIPT_URL + '?action=read&t=' + Date.now()); // cache-bust
+    const j = await r.json();
+    if (!j.ok) throw new Error('Sheets error');
+
+    if (j.data && j.data.vacantes) {
       DB = j.data;
       if (!DB.entrevistas) DB.entrevistas = [];
-      if (!DB.submittals) DB.submittals = [];
-      if (!DB.metas) DB.metas = [];
-      _lastSavedToSheets = sheetsTs;
-      saveLocal();
+      if (!DB.submittals)  DB.submittals  = [];
+      if (!DB.metas)       DB.metas       = [];
+      if (!DB.procesos)    DB.procesos    = [];
+      if (!DB.nextId)      DB.nextId      = 1;
+      cacheLocal();
       renderAll();
-      setSaveUI('ok', 'Actualizado ' + hhmm());
-    } else {
       setSaveUI('ok', 'Al día ' + hhmm());
+    } else {
+      // Sheets vacío — intentar recuperar desde caché
+      const cached = loadCache();
+      if (cached) {
+        DB = cached;
+        if (!DB.entrevistas) DB.entrevistas = [];
+        if (!DB.submittals)  DB.submittals  = [];
+        if (!DB.metas)       DB.metas       = [];
+        if (!DB.procesos)    DB.procesos    = [];
+        renderAll();
+        setSaveUI('saving', 'Recuperando caché...');
+        // Subir caché a Sheets
+        await _doSave(0);
+      } else {
+        setSaveUI('ok', 'Hub listo');
+      }
     }
   } catch(e) {
-    setSaveUI('err', 'Sin conexión');
+    // Sin conexión: usar caché si existe
+    const cached = loadCache();
+    if (cached && cached.vacantes && cached.vacantes.length > 0) {
+      DB = cached;
+      if (!DB.entrevistas) DB.entrevistas = [];
+      if (!DB.submittals)  DB.submittals  = [];
+      if (!DB.metas)       DB.metas       = [];
+      if (!DB.procesos)    DB.procesos    = [];
+      renderAll();
+      setSaveUI('err', '⚠️ Sin conexión — mostrando caché local');
+    } else {
+      setSaveUI('err', '⚠️ Sin conexión a Sheets');
+    }
   }
 }
 
 async function syncNow() {
-  _pendingChanges = false; // forzar sync manual
+  if (_isSaving || _saveTimer) {
+    setSaveUI('saving', 'Guardando cambios primero...');
+    return;
+  }
   await doLoad();
 }
 
@@ -2258,7 +2289,7 @@ populateCandVacFilter();
 setInterval(updateClock, 1000);
 updateClock();
 doLoad();
-setInterval(doLoad, 20000);
+// setInterval(doLoad, 20000) — REMOVIDO: causaba sobreescritura de datos
 requestNotifPermission();
 setInterval(checkMetaNotifications, 60000);
 </script>
