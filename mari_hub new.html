@@ -176,33 +176,15 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-/* Tooltip kanban */
-.kanban { position: relative; }
-.kanban-col { overflow: visible !important; }
-.kanban-card { position: relative; isolation: isolate; }
-.kcard-tooltip {
-  display: none;
-  position: fixed;
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  padding: 10px 13px;
-  width: 230px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-  z-index: 9999;
-  font-size: 11px;
-  line-height: 1.5;
-  pointer-events: none;
-}
-.kanban-card:hover .kcard-tooltip { display: block; }
-.kcard-tooltip-row { margin-bottom: 5px; }
-.kcard-tooltip-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .4px; display: block; }
-.kcard-tooltip-val { color: var(--text); font-size: 12px; }
-/* HIRE badge colors */
-.hire-confirmado { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; }
-.hire-pendiente  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; }
-.kanban-card.hire-card-confirmado { border-left: 3px solid #10b981 !important; }
-.kanban-card.hire-card-pendiente  { border-left: 3px solid #f59e0b !important; }
+/* Kanban procesos */
+.kanban { grid-template-columns: repeat(4, 1fr) !important; }
+.kanban-card { position: relative; cursor: pointer; }
+/* HIRE / Por confirmar badges */
+.hire-confirmado { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; display: inline-block; }
+.hire-pendiente  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; display: inline-block; cursor: pointer; }
+.hire-pendiente:hover { background: #fde68a; }
+.kanban-card.hire-card-confirmado { border-left: 3px solid #10b981 !important; background: #f0fdf4 !important; }
+.kanban-card.hire-card-pendiente  { border-left: 3px solid #f59e0b !important; background: #fffbeb !important; }
 
 /* Days in stage badge */
 .days-badge { font-size: 9px; font-family: 'DM Mono', monospace; padding: 1px 5px; border-radius: 10px; margin-top: 5px; display: inline-block; }
@@ -1072,30 +1054,16 @@ function changeCandStatus(id, val) {
 }
 
 // ── PROCESOS ──────────────────────────────────────────────
-const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'HIRE', 'Descartado'];
+const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'Por confirmar', 'HIRE'];
 
-// Posición del tooltip usando mousemove para que siga al cursor
-document.addEventListener('mousemove', function(e) {
-  const tt = document.querySelector('.kanban-card:hover .kcard-tooltip');
-  if (!tt) return;
-  const margin = 14;
-  let left = e.clientX + margin;
-  let top  = e.clientY - 20;
-  // Si se sale por la derecha, mostrar a la izquierda
-  if (left + 240 > window.innerWidth) left = e.clientX - 240 - margin;
-  // Si se sale por abajo, subir
-  if (top + tt.offsetHeight > window.innerHeight) top = window.innerHeight - tt.offsetHeight - 10;
-  tt.style.left = left + 'px';
-  tt.style.top  = top  + 'px';
-});
-
-function toggleHireStatus(candId, e) {
+function confirmarHire(candId, e) {
   e.stopPropagation();
   const c = DB.candidatos.find(x => x.id === candId);
   if (!c) return;
-  c.hireConfirmado = !c.hireConfirmado;
+  c.hireConfirmado = true;
   save();
   renderProcesos();
+  renderStats();
 }
 
 function populateProcVacFilter() {
@@ -1120,25 +1088,27 @@ function daysBadge(d) {
 
 function renderProcesos() {
   const vf = document.getElementById('filterProcVac').value;
-  let cands = DB.candidatos.filter(c => {
+  const cands = DB.candidatos.filter(c => {
     if (vf && String(c.vacId) !== vf) return false;
     return true;
   });
 
-  // Mapear etapas del candidato a columnas kanban
+  // Mapeo de etapa a columna
   function getKanbanCol(c) {
-    if (c.etapa === 'Descartado') return 'Descartado';
-    if (c.etapa === 'Contratado') return 'HIRE';
+    if (c.etapa === 'Descartado') return null; // no mostrar descartados
+    if (c.etapa === 'Contratado') {
+      return c.hireConfirmado ? 'HIRE' : 'Por confirmar';
+    }
     if (c.etapa === 'Entrevista HM') return 'Entrevista HM';
     if (c.etapa === 'Submittal Sent') return 'Submittal Sent';
-    return null; // otros no aparecen en procesos
+    return null;
   }
 
   const COL_CONFIG = {
-    'Submittal Sent': { icon: '📤', color: 'var(--purple)' },
-    'Entrevista HM':  { icon: '🎙️', color: 'var(--blue)' },
-    'HIRE':           { icon: '🏆', color: 'var(--green)' },
-    'Descartado':     { icon: '❌', color: 'var(--red, #ef4444)' },
+    'Submittal Sent': { icon: '📤', color: '#7c3aed', bg: '#f5f3ff' },
+    'Entrevista HM':  { icon: '🎙️', color: '#1d4ed8', bg: '#eff6ff' },
+    'Por confirmar':  { icon: '⏳', color: '#b45309', bg: '#fffbeb' },
+    'HIRE':           { icon: '✅', color: '#065f46', bg: '#f0fdf4' },
   };
 
   const kanban = document.getElementById('kanbanProcesos');
@@ -1147,40 +1117,32 @@ function renderProcesos() {
     const cfg  = COL_CONFIG[etapa] || {};
 
     const cards = cols.map(c => {
-      const vac  = DB.vacantes.find(v => v.id === c.vacId);
+      const vac = DB.vacantes.find(v => v.id === c.vacId);
       const dias = calcDaysInStage(c);
-      const tooltipRows = [
-        c.fuente      ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fuente</span><span class="kcard-tooltip-val">${esc(c.fuente)}</span></div>` : '',
-        c.proxAccion  ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Próxima acción</span><span class="kcard-tooltip-val">${esc(c.proxAccion)}</span></div>` : '',
-        c.fechaProxima? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Fecha acción</span><span class="kcard-tooltip-val">${fmtDate(c.fechaProxima)}</span></div>` : '',
-        c.salEsperado ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Expectativa salarial</span><span class="kcard-tooltip-val">${esc(c.salEsperado)}</span></div>` : '',
-        c.notas       ? `<div class="kcard-tooltip-row"><span class="kcard-tooltip-label">Notas</span><span class="kcard-tooltip-val">${esc(c.notas)}</span></div>` : '',
-      ].filter(Boolean).join('') || `<span style="color:var(--text3);font-size:11px;">Sin información adicional</span>`;
 
-      // HIRE: mostrar badge de confirmado/pendiente con botón toggle
-      let hireBadge = '';
-      let hireCardClass = '';
-      if (etapa === 'HIRE') {
-        const confirmado = !!c.hireConfirmado;
-        hireCardClass = confirmado ? 'hire-card-confirmado' : 'hire-card-pendiente';
-        hireBadge = `<div style="margin-top:7px;">
-          <button onclick="toggleHireStatus(${c.id}, event)" class="${confirmado ? 'hire-confirmado' : 'hire-pendiente'}">
-            ${confirmado ? '✅ Confirmado' : '⏳ Por confirmar'}
+      let actionBtn = '';
+      if (etapa === 'Por confirmar') {
+        actionBtn = `<div style="margin-top:8px;">
+          <button class="hire-pendiente" onclick="confirmarHire(${c.id}, event)">
+            ✅ Confirmar HIRE
           </button>
         </div>`;
       }
+      if (etapa === 'HIRE') {
+        actionBtn = `<div style="margin-top:6px;"><span class="hire-confirmado">✅ Confirmado</span></div>`;
+      }
 
-      return `<div class="kanban-card ${hireCardClass}" data-id="${c.id}" onclick="editCandidato(parseInt(this.dataset.id))">
+      return `<div class="kanban-card ${etapa === 'HIRE' ? 'hire-card-confirmado' : etapa === 'Por confirmar' ? 'hire-card-pendiente' : ''}"
+        data-id="${c.id}" onclick="editCandidato(parseInt(this.dataset.id))">
         <div class="kanban-card-name">${esc(c.nombre)}</div>
         <div class="kanban-card-sub">${esc(vac ? vac.pos : '—')}</div>
         ${daysBadge(dias)}
-        ${hireBadge}
-        <div class="kcard-tooltip">${tooltipRows}</div>
+        ${actionBtn}
       </div>`;
-    }).join('') || `<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px 0;">Sin candidatos</div>`;
+    }).join('') || `<div style="font-size:11px;color:var(--text3);text-align:center;padding:16px 0;">Sin candidatos</div>`;
 
-    return `<div class="kanban-col">
-      <div class="kanban-col-header" style="color:${cfg.color || 'var(--text2)'}">
+    return `<div class="kanban-col" style="border-top: 3px solid ${cfg.color || '#ccc'};">
+      <div class="kanban-col-header" style="color:${cfg.color || 'var(--text2)'};">
         <span>${cfg.icon || ''} ${etapa}</span>
         <span class="kanban-col-count">${cols.length}</span>
       </div>
