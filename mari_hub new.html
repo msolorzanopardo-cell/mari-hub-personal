@@ -603,8 +603,10 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2qdbUAvDI90nBcAXWs
 const STORAGE_KEY = 'mari_hub_v1';
 
 // ── Estado ────────────────────────────────────────────────
-let _syncTimer = null;   // timer para sync a Sheets en background
-let _isSyncing = false;  // está subiendo a Sheets ahora mismo
+let _syncTimer = null;     // timer para sync a Sheets en background
+let _isSyncing = false;    // está subiendo a Sheets ahora mismo
+let _lastUserEdit = 0;     // timestamp del último save() iniciado por el usuario
+let _pageLoadTime = Date.now(); // cuando se cargó la página (para detectar background checks)
 
 // ── DB: se carga desde localStorage al instante ───────────
 let DB = loadLocal();
@@ -657,6 +659,7 @@ function hhmm() {
 
 // ── SAVE: instantáneo en localStorage + sync a Sheets ─────
 function save() {
+  _lastUserEdit = Date.now();           // marcar edición de usuario
   saveLocal();                          // ✅ guardado local INMEDIATO
   setSaveUI('ok', 'Guardado ' + hhmm());
   // Sync a Sheets en background, sin bloquear
@@ -674,11 +677,13 @@ async function _syncToSheets() {
       method: 'POST',
       body: JSON.stringify({ action: 'write', data: payload })
     });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
-    if (!j.ok) throw new Error('Sheets error');
+    if (!j.ok) throw new Error(j.error || 'Sheets error');
     // Sync exitoso — no cambiar UI, el usuario ya vio "Guardado"
   } catch(e) {
-    // Fallo silencioso — datos ya están en localStorage, se reintentará en el próximo save
+    // Hacer el fallo VISIBLE en lugar de silencioso
+    setSaveUI('err', '⚠️ Solo local — Sheets falló');
     console.warn('Sync a Sheets falló (datos seguros en local):', e.message);
   }
   _isSyncing = false;
@@ -731,6 +736,18 @@ async function _checkSheetsInBackground(localTs) {
     const j = await r.json();
     if (!j.ok) return;
     const sheetsTs = Number(j.updatedAt) || Number(j.data && j.data.ts) || 0;
+
+    // 🛡️ PROTECCIÓN: si el usuario editó algo después de cargar la página,
+    // NUNCA sobrescribir su trabajo con datos del Sheet.
+    if (_lastUserEdit > _pageLoadTime) {
+      // El usuario tocó algo. Si lo local es más nuevo, asegurar sync hacia Sheets.
+      if (getLocalTs() > sheetsTs) {
+        clearTimeout(_syncTimer);
+        _syncTimer = setTimeout(_syncToSheets, 800);
+      }
+      return; // No reemplazar DB jamás
+    }
+
     if (sheetsTs > localTs && j.data && j.data.vacantes) {
       // Sheets tiene algo más nuevo (cambio desde otro dispositivo)
       DB = j.data;
@@ -1072,7 +1089,7 @@ function changeCandStatus(id, val) {
 const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'Por confirmar', 'HIRE', 'Descartado'];
 
 function confirmarHire(candId, e) {
-  e.stopPropagation();
+  if (e) { e.stopPropagation(); e.preventDefault(); }
   const c = DB.candidatos.find(x => x.id === candId);
   if (!c) return;
   c.hireConfirmado = true;
@@ -1586,6 +1603,8 @@ function saveCandidato() {
   const fechaOfertaVal = g('f-fechaOferta') || ex?.fechaOferta || '';
   const fechaIngresoVal = g('f-fechaIngreso') || ex?.fechaIngreso || '';
   const data = { nombre, vacId, etapa: etapaVal, fuente: g('f-fuente'), proxAccion: g('f-proxAccion'), fechaProxima: g('f-fechaProxima'), link: g('f-link'), salEsperado: g('f-salEsperado'), notas: g('f-notas'), fechaSubmittal: fechaSubVal, fechaOferta: fechaOfertaVal, fechaIngreso: fechaIngresoVal };
+  // Preservar campos auxiliares que no están en el formulario
+  if (ex && ex.hireConfirmado !== undefined) data.hireConfirmado = ex.hireConfirmado;
   if (_editId) {
     Object.assign(DB.candidatos.find(x => x.id === _editId), data);
   } else {
