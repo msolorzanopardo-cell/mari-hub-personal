@@ -177,7 +177,7 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* Kanban procesos */
-.kanban { grid-template-columns: repeat(4, 1fr) !important; }
+.kanban { grid-template-columns: repeat(5, 1fr) !important; }
 .kanban-card { position: relative; cursor: pointer; }
 /* HIRE / Por confirmar badges */
 .hire-confirmado { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; display: inline-block; }
@@ -350,6 +350,21 @@ mark { background: var(--accent-bg); color: var(--accent); border-radius: 2px; p
     <div class="controls">
       <select class="ctrl-select" id="filterProcVac" onchange="renderProcesos()">
         <option value="">Todas las vacantes</option>
+      </select>
+      <select class="ctrl-select" id="filterProcMes" onchange="renderProcesos()">
+        <option value="">Todos los meses</option>
+        <option value="1">Enero</option>
+        <option value="2">Febrero</option>
+        <option value="3">Marzo</option>
+        <option value="4">Abril</option>
+        <option value="5">Mayo</option>
+        <option value="6">Junio</option>
+        <option value="7">Julio</option>
+        <option value="8">Agosto</option>
+        <option value="9">Septiembre</option>
+        <option value="10">Octubre</option>
+        <option value="11">Noviembre</option>
+        <option value="12">Diciembre</option>
       </select>
       <button class="btn-primary" onclick="openModal('proceso')">+ Nuevo proceso</button>
     </div>
@@ -1054,7 +1069,7 @@ function changeCandStatus(id, val) {
 }
 
 // ── PROCESOS ──────────────────────────────────────────────
-const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'Por confirmar', 'HIRE'];
+const ETAPAS_KANBAN = ['Submittal Sent', 'Entrevista HM', 'Por confirmar', 'HIRE', 'Descartado'];
 
 function confirmarHire(candId, e) {
   e.stopPropagation();
@@ -1071,6 +1086,11 @@ function populateProcVacFilter() {
   const cur = sel.value;
   sel.innerHTML = '<option value="">Todas las vacantes</option>' +
     DB.vacantes.map(v => `<option value="${v.id}"${String(v.id)===cur?' selected':''}>${esc(v.pos)}</option>`).join('');
+  // Auto-seleccionar mes actual si no hay filtro de mes
+  const msel = document.getElementById('filterProcMes');
+  if (msel && !msel.value) {
+    msel.value = String(new Date().getMonth() + 1);
+  }
 }
 
 function calcDaysInStage(c) {
@@ -1087,15 +1107,32 @@ function daysBadge(d) {
 }
 
 function renderProcesos() {
-  const vf = document.getElementById('filterProcVac').value;
+  const vf  = document.getElementById('filterProcVac').value;
+  const mf  = document.getElementById('filterProcMes')?.value || '';
+
+  // Determina si un candidato corresponde al mes filtrado
+  function matchesMes(c) {
+    if (!mf) return true;
+    const mes = parseInt(mf);
+    // Revisar fechaSubmittal, fechaIngreso, fechaOferta, fechaProxima
+    const fechas = [c.fechaSubmittal, c.fechaIngreso, c.fechaOferta, c.fechaProxima].filter(Boolean);
+    if (fechas.some(f => { const d = new Date(f + 'T00:00:00'); return d.getMonth() + 1 === mes; })) return true;
+    // También revisar por la vacante si tiene fc (forecast) con nombre de mes
+    const MESES = ['','ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+    const vac = DB.vacantes.find(v => v.id === c.vacId);
+    if (vac && vac.fc && vac.fc.toUpperCase() === MESES[mes]) return true;
+    return false;
+  }
+
   const cands = DB.candidatos.filter(c => {
     if (vf && String(c.vacId) !== vf) return false;
+    if (!matchesMes(c)) return false;
     return true;
   });
 
   // Mapeo de etapa a columna
   function getKanbanCol(c) {
-    if (c.etapa === 'Descartado') return null; // no mostrar descartados
+    if (c.etapa === 'Descartado') return 'Descartado';
     if (c.etapa === 'Contratado') {
       return c.hireConfirmado ? 'HIRE' : 'Por confirmar';
     }
@@ -1109,6 +1146,7 @@ function renderProcesos() {
     'Entrevista HM':  { icon: '🎙️', color: '#1d4ed8', bg: '#eff6ff' },
     'Por confirmar':  { icon: '⏳', color: '#b45309', bg: '#fffbeb' },
     'HIRE':           { icon: '✅', color: '#065f46', bg: '#f0fdf4' },
+    'Descartado':     { icon: '❌', color: '#9ca3af', bg: '#f9fafb' },
   };
 
   const kanban = document.getElementById('kanbanProcesos');
